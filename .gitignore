@@ -1,8 +1,47 @@
+# Dependencies
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build outputs
 dist/
+build/
 .next/
+out/
 .turbo/
+
+# Coverage
 coverage/
-*.env
+.nyc_output/
+
+# Environment variables
+.env
 .env.local
-.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+!.env.example
+
+# IDE and OS files
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+logs
+*.log
+
+# Prisma
+# Ignore sqlite dbs if any
+*.db
+*.db-journal
+
+# Secrets
+*.pem
+*.key
+*.cert
+*.crt
