@@ -1,0 +1,58 @@
+version: '3.9'
+
+# Ephemeral stack for e2e tests — starts fresh each run, no volumes.
+# Uses Redpanda instead of Kafka for faster startup in CI.
+# App services are NOT here — tests start them programmatically.
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: zapier_postgres_test
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: zapier_clone_test
+    ports:
+      - '5433:5432'
+    tmpfs:
+      - /var/lib/postgresql/data   # ephemeral — fast, no leftover data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  redis-test:
+    image: redis:7-alpine
+    container_name: zapier_redis_test
+    ports:
+      - '6380:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  # Redpanda — Kafka-compatible, single binary, much faster startup than Kafka
+  redpanda:
+    image: redpandadata/redpanda:v23.3.11
+    container_name: zapier_redpanda_test
+    command:
+      - redpanda
+      - start
+      - --smp 1
+      - --memory 512M
+      - --overprovisioned
+      - --kafka-addr PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9093
+      - --advertise-kafka-addr PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9093
+      - --pandaproxy-addr 0.0.0.0:8082
+      - --advertise-pandaproxy-addr localhost:8082
+    ports:
+      - '9093:9093'
+      - '8082:8082'
+    healthcheck:
+      test: ['CMD-SHELL', 'rpk cluster health | grep -q "Healthy:.*true"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s

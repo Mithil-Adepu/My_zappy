@@ -1,0 +1,233 @@
+// This Prisma schema mirrors the full database schema from §4 of the design doc.
+// Notes on raw SQL usage:
+//   - FOR UPDATE SKIP LOCKED → $queryRaw in relay/src/poller/outbox-poller.ts
+//   - INSERT ... ON CONFLICT DO NOTHING RETURNING → $queryRaw in worker/src/services/claim.service.ts
+//   - Partial index (one_trigger_per_zap) → defined in migrations, not expressible in Prisma schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── LAYER 1: Identity ───────────────────────────────────────────────────────
+
+model User {
+  id           BigInt       @id @default(autoincrement())
+  name         String       @db.VarChar(100)
+  email        String       @unique @db.VarChar(255)
+  passwordHash String       @map("password_hash")
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz()
+
+  zaps         Zap[]
+  connections  Connection[]
+
+  @@map("users")
+}
+
+// ─── LAYER 2: App Catalog ────────────────────────────────────────────────────
+
+model Connector {
+  id                     String   @id @db.VarChar(50)
+  name                   String   @db.VarChar(100)
+  imageUrl               String?  @map("image_url")
+  authType               String   @default("oauth") @map("auth_type") @db.VarChar(20)
+  authUrl                String?  @map("auth_url")
+  tokenUrl               String?  @map("token_url")
+  scopes                 String[] 
+  supportsIdempotencyKey Boolean  @default(false) @map("supports_idempotency_key")
+
+  availableTriggers AvailableTrigger[]
+  availableActions  AvailableAction[]
+  connections       Connection[]
+
+  @@map("connectors")
+}
+
+model AvailableTrigger {
+  id            String    @id @db.VarChar(50)
+  connectorId   String    @map("connector_id") @db.VarChar(50)
+  name          String    @db.VarChar(100)
+  payloadSchema Json?     @map("payload_schema")
+
+  connector Connector  @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  zapSteps  ZapStep[]
+
+  @@unique([connectorId, name])
+  @@map("available_triggers")
+}
+
+model AvailableAction {
+  id          String  @id @db.VarChar(50)
+  connectorId String  @map("connector_id") @db.VarChar(50)
+  name        String  @db.VarChar(100)
+  inputSchema Json?   @map("input_schema")
+
+  connector Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  zapSteps  ZapStep[]
+
+  @@unique([connectorId, name])
+  @@map("available_actions")
+}
+
+// ─── LAYER 3: OAuth Connections ──────────────────────────────────────────────
+
+model Connection {
+  id                  BigInt    @id @default(autoincrement())
+  userId              BigInt    @map("user_id")
+  connectorId         String    @map("connector_id") @db.VarChar(50)
+  label               String    @db.VarChar(100)
+  externalAccountId   String    @default("default") @map("external_account_id") @db.VarChar(255)
+  // Encrypted at rest (AES-GCM). Populated for oauth connections.
+  accessToken         String?   @map("access_token")
+  // Encrypted at rest. Populated for oauth connections.
+  refreshToken        String?   @map("refresh_token")
+  // Encrypted at rest. Populated for api_key connections.
+  apiKey              String?   @map("api_key")
+  // Encrypted at rest. Some providers need both (e.g. Razorpay: key_id + key_secret).
+  apiSecret           String?   @map("api_secret")
+  expiresAt           DateTime? @map("expires_at") @db.Timestamptz()
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connector Connector  @relation(fields: [connectorId], references: [id])
+  zapSteps  ZapStep[]
+
+  // NOTE: auth_fields_match_type CHECK constraint is enforced in the migration SQL.
+  // NOTE: connection ownership (connection.userId == zap.userId) is enforced in
+  //       connection-ownership.service.ts, not by FK — see design doc §4.
+
+  @@unique([userId, connectorId, externalAccountId])
+  @@index([userId, connectorId], name: "idx_connections_user_connector")
+  @@map("connections")
+}
+
+// ─── LAYER 4: The Zap ────────────────────────────────────────────────────────
+
+model Zap {
+  id               BigInt    @id @default(autoincrement())
+  userId           BigInt    @map("user_id")
+  name             String    @db.VarChar(200)
+  isActive         Boolean   @default(true) @map("is_active")
+  maxRunsPerHour   Int       @default(100) @map("max_runs_per_hour")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  steps         ZapStep[]
+  webhookEvents WebhookEvent[]
+  zapRuns       ZapRun[]
+
+  @@map("zaps")
+}
+
+model ZapStep {
+  id                  BigInt    @id @default(autoincrement())
+  zapId               BigInt    @map("zap_id")
+  stepType            String    @map("step_type") @db.VarChar(10)
+  position            Int
+  availableTriggerId  String?   @map("available_trigger_id") @db.VarChar(50)
+  availableActionId   String?   @map("available_action_id") @db.VarChar(50)
+  connectionId        BigInt?   @map("connection_id")
+  config              Json      @default("{}")
+  webhookSecret       String?   @map("webhook_secret")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  zap              Zap               @relation(fields: [zapId], references: [id], onDelete: Cascade)
+  availableTrigger AvailableTrigger? @relation(fields: [availableTriggerId], references: [id])
+  availableAction  AvailableAction?  @relation(fields: [availableActionId], references: [id])
+  connection       Connection?       @relation(fields: [connectionId], references: [id])
+  zapRunSteps      ZapRunStep[]
+
+  // NOTE: These constraints are enforced in migration SQL (not expressible in Prisma schema):
+  //   - CHECK (step_type IN ('trigger','action','filter'))
+  //   - CHECK (step_type = 'trigger' OR webhook_secret IS NULL)
+  //   - UNIQUE INDEX one_trigger_per_zap (partial: WHERE step_type = 'trigger')
+  //   - CHECK on available_trigger_id / available_action_id mutual exclusivity
+
+  @@unique([zapId, position])
+  @@index([zapId], name: "idx_zap_steps_zap_id")
+  @@map("zap_steps")
+}
+
+// ─── LAYER 5: Ingestion ──────────────────────────────────────────────────────
+
+model WebhookEvent {
+  id         BigInt   @id @default(autoincrement())
+  eventId    String   @map("event_id") @db.VarChar(255)
+  zapId      BigInt   @map("zap_id")
+  payload    Json
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz()
+
+  zap    Zap     @relation(fields: [zapId], references: [id], onDelete: Cascade)
+  outbox Outbox?
+  zapRun ZapRun?
+
+  @@unique([eventId, zapId])
+  @@map("webhook_events")
+}
+
+model Outbox {
+  id             BigInt    @id @default(autoincrement())
+  webhookEventId BigInt    @unique @map("webhook_event_id")
+  eventId        String    @map("event_id") @db.VarChar(255)
+  payload        Json
+  status         String    @default("pending") @db.VarChar(20)
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(10) @map("max_attempts")
+  consumedAt     DateTime? @map("consumed_at") @db.Timestamptz()
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  webhookEvent WebhookEvent @relation(fields: [webhookEventId], references: [id], onDelete: Cascade)
+
+  // NOTE: CHECK (status IN ('pending','dispatched','consumed','dead')) enforced in migration SQL.
+
+  @@index([status, createdAt], name: "idx_outbox_status_created")
+  @@map("outbox")
+}
+
+// ─── LAYER 6: Execution ──────────────────────────────────────────────────────
+
+model ZapRun {
+  id             BigInt    @id @default(autoincrement())
+  zapId          BigInt    @map("zap_id")
+  webhookEventId BigInt    @unique @map("webhook_event_id")
+  status         String    @default("in_progress") @db.VarChar(20)
+  stepSnapshot   Json?     @map("step_snapshot")
+  startedAt      DateTime  @default(now()) @map("started_at") @db.Timestamptz()
+  completedAt    DateTime? @map("completed_at") @db.Timestamptz()
+
+  zap          Zap          @relation(fields: [zapId], references: [id], onDelete: Cascade)
+  webhookEvent WebhookEvent @relation(fields: [webhookEventId], references: [id])
+  zapRunSteps  ZapRunStep[]
+
+  // NOTE: CHECK (status IN ('in_progress','completed','failed','filtered')) enforced in migration SQL.
+
+  @@index([zapId, status], name: "idx_zap_runs_zap_status")
+  @@map("zap_runs")
+}
+
+model ZapRunStep {
+  id             BigInt    @id @default(autoincrement())
+  zapRunId       BigInt    @map("zap_run_id")
+  zapStepId      BigInt    @map("zap_step_id")
+  status         String    @default("processing") @db.VarChar(20)
+  output         Json?
+  errorCode      String?   @map("error_code") @db.VarChar(50)
+  errorMessage   String?   @map("error_message")
+  idempotencyKey String    @default(dbgenerated("gen_random_uuid()")) @map("idempotency_key") @db.Uuid
+  claimedAt      DateTime? @map("claimed_at") @db.Timestamptz()
+  workerId       String?   @map("worker_id") @db.VarChar(100)
+  executedAt     DateTime  @default(now()) @map("executed_at") @db.Timestamptz()
+
+  zapRun  ZapRun  @relation(fields: [zapRunId], references: [id], onDelete: Cascade)
+  zapStep ZapStep @relation(fields: [zapStepId], references: [id])
+
+  // NOTE: CHECK (status IN ('processing','completed','failed','ambiguous')) enforced in migration SQL.
+
+  @@unique([zapRunId, zapStepId])
+  @@index([zapRunId], name: "idx_zap_run_steps_zap_run_id")
+  @@map("zap_run_steps")
+}

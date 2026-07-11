@@ -1,0 +1,136 @@
+version: '3.9'
+
+services:
+  # ─── Infrastructure ────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: zapier_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: zapier_clone
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: zapier_redis
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Kafka in KRaft mode — no Zookeeper
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: zapier_kafka
+    ports:
+      - '9092:9092'
+    environment:
+      # KRaft settings
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      # Listeners
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # Topic defaults
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_CFG_NUM_PARTITIONS: 4
+      KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: 1
+      ALLOW_PLAINTEXT_LISTENER: 'yes'
+    healthcheck:
+      test: ['CMD-SHELL', 'kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1']
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+
+  # ─── Application Services ──────────────────────────────────────────────────
+  app-api:
+    build:
+      context: .
+      dockerfile: apps/app-api/Dockerfile
+    container_name: zapier_app_api
+    ports:
+      - '3001:3001'
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/zapier_clone
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: development
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  hooks-api:
+    build:
+      context: .
+      dockerfile: apps/hooks-api/Dockerfile
+    container_name: zapier_hooks_api
+    ports:
+      - '3002:3002'
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/zapier_clone
+      NODE_ENV: development
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  relay:
+    build:
+      context: .
+      dockerfile: apps/relay/Dockerfile
+    container_name: zapier_relay
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/zapier_clone
+      KAFKA_BROKERS: kafka:9092
+      NODE_ENV: development
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    container_name: zapier_worker
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/zapier_clone
+      REDIS_URL: redis://redis:6379
+      KAFKA_BROKERS: kafka:9092
+      NODE_ENV: development
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
