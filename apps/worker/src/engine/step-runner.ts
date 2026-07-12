@@ -3,7 +3,8 @@ import { apply as substituteTemplates } from '../engine/template-substitution';
 import { validateMappedPayload } from '../engine/payload-validator';
 import { getAdapter, AdapterResult } from '../connectors/registry';
 import { getCredentials, refreshToken } from '../services/token-refresh.service';
-import { checkAndConsume, releaseWithDelay } from './step-runner-helpers';
+import { checkAndConsume } from '../services/rate-limiter.service';
+import { releaseWithDelay } from '../services/claim.service';
 import { env } from '../config/env';
 
 export interface StepRunResult {

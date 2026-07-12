@@ -8,6 +8,7 @@
     "start": "node dist/main.js",
     "lint": "tsc --noEmit",
     "test": "vitest run",
+    "test:unit:engine": "node --max-old-space-size=2048 $(npx which vitest) run src/engine/__tests__/sequential-executor.test.ts",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:e2e": "vitest run --config vitest.e2e.config.ts"

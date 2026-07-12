@@ -8,6 +8,8 @@ const envSchema = z.object({
   KAFKA_TOPIC_ZAP_RUN_REQUESTED: z.string().default('zap.run.requested'),
   RELAY_POLL_INTERVAL_MS: z.string().default('2000').transform(Number),
   RELAY_BATCH_SIZE: z.string().default('50').transform(Number),
+  RELAY_HEALTH_PORT: z.string().default('3003').transform(Number),
+  SENTRY_DSN: z.string().optional(),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 });
 

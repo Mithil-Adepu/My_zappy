@@ -11,7 +11,7 @@ import {
 } from '../controllers/zap.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 
-export const zapsRouter = Router();
+export const zapsRouter: import("express").Router = Router();
 
 zapsRouter.use(authMiddleware);
 

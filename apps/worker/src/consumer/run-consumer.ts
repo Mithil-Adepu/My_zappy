@@ -3,6 +3,8 @@ import { prisma } from '@zapier-clone/db';
 import { env } from '../config/env';
 import { ZapRunRequestedEvent } from '@zapier-clone/types';
 import { resume } from '../engine/sequential-executor';
+import { underRunCap } from '../services/rate-limiter.service';
+import { logger } from '../lib/logger';
 
 let consumer: Consumer | null = null;
 let shuttingDown = false;
@@ -34,6 +36,7 @@ export async function onMessage(event: ZapRunRequestedEvent): Promise<void> {
   const zapId = BigInt(event.zapId);
 
   // Upsert zap_run — ON CONFLICT DO NOTHING (idempotent on Kafka redeliver)
+  // IMPORTANT: json_build_object keys must be camelCase to match SnapshotStep interface
   const rows = await prisma.$queryRaw<Array<{ id: bigint; step_snapshot: unknown }>>`
     INSERT INTO zap_runs (zap_id, webhook_event_id, status, step_snapshot)
     SELECT
@@ -44,12 +47,12 @@ export async function onMessage(event: ZapRunRequestedEvent): Promise<void> {
         json_build_object(
           'id', zs.id,
           'position', zs.position,
-          'step_type', zs.step_type,
-          'available_action_id', zs.available_action_id,
-          'available_trigger_id', zs.available_trigger_id,
-          'connection_id', zs.connection_id,
+          'stepType', zs.step_type,
+          'availableActionId', zs.available_action_id,
+          'availableTriggerId', zs.available_trigger_id,
+          'connectionId', zs.connection_id,
           'config', zs.config,
-          'available_action', (
+          'availableAction', (
             SELECT json_build_object('inputSchema', aa.input_schema)
             FROM available_actions aa WHERE aa.id = zs.available_action_id
           )
@@ -71,13 +74,13 @@ export async function onMessage(event: ZapRunRequestedEvent): Promise<void> {
     });
 
     if (!existing) {
-      console.error(`[worker] Cannot find run for webhookEventId ${webhookEventId}`);
+      logger.error({ webhookEventId: event.webhookEventId }, '[worker] Cannot find run for webhookEventId');
       return;
     }
 
     // If already terminal, skip
     if (['completed', 'failed', 'filtered'].includes(existing.status)) {
-      console.log(`[worker] Run for event ${event.webhookEventId} already terminal (${existing.status}), skipping`);
+      logger.info({ webhookEventId: event.webhookEventId, status: existing.status }, '[worker] Run already terminal — skipping');
       return;
     }
 
@@ -89,6 +92,27 @@ export async function onMessage(event: ZapRunRequestedEvent): Promise<void> {
     where: { webhookEventId },
     data: { status: 'consumed', consumedAt: new Date() },
   });
+
+  // §11 — Enforce per-zap hourly run cap (maxRunsPerHour stored on Zap)
+  const zap = await prisma.zap.findUnique({
+    where: { id: zapId },
+    select: { maxRunsPerHour: true, isActive: true },
+  });
+
+  if (!zap || !zap.isActive) {
+    logger.info({ zapId: zapId.toString() }, '[worker] Zap is inactive — skipping run');
+    return;
+  }
+
+  const underCap = await underRunCap(zapId, zap.maxRunsPerHour);
+  if (!underCap) {
+    logger.warn({ zapId: zapId.toString(), maxRunsPerHour: zap.maxRunsPerHour }, '[worker] Zap exceeded maxRunsPerHour — run skipped');
+    await prisma.zapRun.update({
+      where: { id: zapRun.id },
+      data: { status: 'failed', completedAt: new Date() },
+    });
+    return;
+  }
 
   // Execute sequentially
   const payloadContext = event.payload;
@@ -113,12 +137,12 @@ export async function startConsumer(): Promise<void> {
         const event = JSON.parse(message.value.toString()) as ZapRunRequestedEvent;
         await onMessage(event);
       } catch (err) {
-        console.error('[worker] Error processing message:', err);
+        logger.error({ err }, '[worker] Error processing message');
       }
     },
   });
 
-  console.log('✅  Kafka consumer running');
+  logger.info('✅  Kafka consumer running');
 }
 
 export async function pauseConsumer(): Promise<void> {

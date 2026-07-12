@@ -20,6 +20,8 @@ const envSchema = z.object({
   SLACK_REDIRECT_URI: z.string().url().optional(),
   // Sentry
   SENTRY_DSN: z.string().optional(),
+  // Web app origin (for OAuth redirect and CORS)
+  WEB_APP_URL: z.string().url().default('http://localhost:3000'),
 });
 
 // Throws on startup if any required env vars are missing/invalid

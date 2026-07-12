@@ -5,7 +5,7 @@ import {
   getConnectorActions,
 } from '../controllers/connectors.controller';
 
-export const connectorsRouter = Router();
+export const connectorsRouter: import("express").Router = Router();
 
 connectorsRouter.get('/', listConnectors);
 connectorsRouter.get('/:id/triggers', getConnectorTriggers);

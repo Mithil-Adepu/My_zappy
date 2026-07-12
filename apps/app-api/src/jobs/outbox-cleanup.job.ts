@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import { prisma } from '@zapier-clone/db';
+import { logger } from '../lib/logger';
 
 /**
  * Deletes consumed outbox rows older than 7 days.
@@ -8,7 +9,7 @@ import { prisma } from '@zapier-clone/db';
  */
 export function startOutboxCleanupJob(): void {
   cron.schedule('0 0 * * *', async () => {
-    console.log('[cron] Running outbox cleanup...');
+    logger.info('[cron] Running outbox cleanup...');
     try {
       const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const result = await prisma.outbox.deleteMany({
@@ -17,9 +18,9 @@ export function startOutboxCleanupJob(): void {
           createdAt: { lt: cutoff },
         },
       });
-      console.log(`[cron] Outbox cleanup: deleted ${result.count} consumed rows`);
+      logger.info({ count: result.count }, '[cron] Outbox cleanup complete');
     } catch (err) {
-      console.error('[cron] outbox-cleanup failed:', err);
+      logger.error({ err }, '[cron] outbox-cleanup failed');
     }
   });
 }

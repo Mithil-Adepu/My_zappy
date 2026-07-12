@@ -1,8 +1,13 @@
 import express from 'express';
 import { env } from './config/env';
+import { initSentry } from './lib/sentry';
 import { pollOutbox, requestStop } from './poller/outbox-poller';
-import { disconnectProducer, getKafka } from './kafka/producer';
+import { disconnectProducer } from './kafka/producer';
 import { prisma } from '@zapier-clone/db';
+import { logger } from './lib/logger';
+
+// Sentry must be initialised before any async code runs
+initSentry();
 
 // Minimal Express app just for the /health endpoint
 // relay has no other HTTP surface — it's a pure background process
@@ -21,7 +26,7 @@ app.get('/health', async (_req, res) => {
 let currentPollPromise: Promise<void> | null = null;
 
 process.on('SIGTERM', async () => {
-  console.log('[relay] SIGTERM received — finishing in-flight poll before exit');
+  logger.info('[relay] SIGTERM received — finishing in-flight poll before exit');
   requestStop();
 
   if (currentPollPromise) {
@@ -30,12 +35,12 @@ process.on('SIGTERM', async () => {
 
   await disconnectProducer();
   await prisma.$disconnect();
-  console.log('[relay] Shutdown complete');
+  logger.info('[relay] Shutdown complete');
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-  console.log('[relay] SIGINT received');
+  logger.info('[relay] SIGINT received');
   requestStop();
   await disconnectProducer();
   await prisma.$disconnect();
@@ -43,11 +48,11 @@ process.on('SIGINT', async () => {
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
-const PORT = process.env.RELAY_HEALTH_PORT ? parseInt(process.env.RELAY_HEALTH_PORT) : 3003;
+const PORT = env.RELAY_HEALTH_PORT;
 
 app.listen(PORT, () => {
-  console.log(`🔁  relay health endpoint on port ${PORT}`);
+  logger.info({ port: PORT }, '🔁  relay health endpoint started');
 });
 
-console.log('🔁  relay starting outbox poll loop...');
+logger.info('🔁  relay starting outbox poll loop...');
 currentPollPromise = pollOutbox();

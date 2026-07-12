@@ -105,8 +105,9 @@ export interface ZapStep {
   id: string; zapId: string; stepType: 'trigger' | 'action' | 'filter';
   position: number; availableTriggerId: string | null; availableActionId: string | null;
   connectionId: string | null; config: Record<string, unknown>;
-  availableTrigger?: { id: string; name: string } | null;
-  availableAction?: { id: string; name: string } | null;
+  webhookSecret?: string | null;
+  availableTrigger?: { id: string; name: string; payloadSchema?: Record<string, unknown> | null } | null;
+  availableAction?: { id: string; name: string; inputSchema?: Record<string, unknown> | null } | null;
 }
 export interface ZapWithSteps extends Zap { steps: ZapStep[]; }
 export interface StepInput {

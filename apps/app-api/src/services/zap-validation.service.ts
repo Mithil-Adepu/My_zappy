@@ -5,8 +5,10 @@ interface StepInput {
   position: number;
   availableTriggerId?: string | null;
   availableActionId?: string | null;
-  connectionId?: bigint | null;
-  config?: Record<string, unknown>;
+  connectionId?: string | bigint | null;
+  // Accept both plain Record and Prisma JsonValue (which is the same at runtime)
+  config?: unknown;
+  [key: string]: unknown;
 }
 
 /**

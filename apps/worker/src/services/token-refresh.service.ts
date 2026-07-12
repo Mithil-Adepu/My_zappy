@@ -1,22 +1,7 @@
 import axios from 'axios';
 import { prisma } from '@zapier-clone/db';
 import { env } from '../config/env';
-
-const ALGORITHM = 'aes-256-gcm';
-const IV_LENGTH = 12;
-const TAG_LENGTH = 16;
-import crypto from 'crypto';
-
-function decrypt(encoded: string): string {
-  const key = Buffer.from(env.ENCRYPTION_KEY, 'hex');
-  const data = Buffer.from(encoded, 'base64');
-  const iv = data.subarray(0, IV_LENGTH);
-  const tag = data.subarray(IV_LENGTH, IV_LENGTH + TAG_LENGTH);
-  const ciphertext = data.subarray(IV_LENGTH + TAG_LENGTH);
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-  decipher.setAuthTag(tag);
-  return decipher.update(ciphertext).toString('utf8') + decipher.final('utf8');
-}
+import { encrypt, decrypt } from './encrypt.helper';
 
 export type Credentials =
   | { type: 'oauth'; accessToken: string; refreshToken: string }
@@ -65,12 +50,12 @@ export async function refreshToken(connectionId: bigint): Promise<void> {
   // For the worker, we use the stored refresh token and make a generic request.
   // In a real deployment, the OAuth client_id/secret would be in worker env too.
   const tokenUrl = connection.connector.tokenUrl!;
-  const refreshToken = decrypt(connection.refreshToken);
+  const storedRefreshToken = decrypt(connection.refreshToken);
 
   const response = await axios.post(
     tokenUrl,
     new URLSearchParams({
-      refresh_token: refreshToken,
+      refresh_token: storedRefreshToken,
       grant_type: 'refresh_token',
     }),
     { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
@@ -79,7 +64,6 @@ export async function refreshToken(connectionId: bigint): Promise<void> {
   const data = response.data;
   if (data.error) throw new Error(`Token refresh failed: ${data.error}`);
 
-  const { encrypt } = await import('./encrypt.helper');
   await prisma.connection.update({
     where: { id: connectionId },
     data: {
@@ -90,3 +74,4 @@ export async function refreshToken(connectionId: bigint): Promise<void> {
     },
   });
 }
+

@@ -8,7 +8,7 @@ import {
 } from '../controllers/connection.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 
-export const connectionsRouter = Router();
+export const connectionsRouter: import("express").Router = Router();
 
 connectionsRouter.use(authMiddleware);
 

@@ -1,6 +1,8 @@
 import { prisma } from '@zapier-clone/db';
 import { Prisma } from '@prisma/client';
 import { env } from '../config/env';
+import { logger } from '../lib/logger';
+import { markFailed } from './run-state.service';
 
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
 
@@ -56,8 +58,8 @@ export async function claim(
     existing.claimedAt &&
     Date.now() - existing.claimedAt.getTime() > env.WORKER_LEASE_TIMEOUT_MS
   ) {
-    // Lease expired — reclaim with ambiguous status
-    return reclaim(existing.id);
+    // Lease expired — reclaim with ambiguous status and fail the run
+    return reclaim(existing.id, zapRunId);
   }
 
   // Actively owned by a live worker — back off
@@ -67,9 +69,9 @@ export async function claim(
 /**
  * Lease expired — we don't know if the previous worker's call completed.
  * This is the ambiguous-outcome problem: do NOT re-execute.
- * Mark ambiguous and return null → run halts for manual review.
+ * Mark step ambiguous AND run failed so the run doesn't stay in_progress.
  */
-async function reclaim(rowId: bigint): Promise<null> {
+async function reclaim(rowId: bigint, zapRunId: bigint): Promise<null> {
   await prisma.zapRunStep.update({
     where: { id: rowId },
     data: {
@@ -79,8 +81,11 @@ async function reclaim(rowId: bigint): Promise<null> {
         'Worker holding this step went silent past lease timeout. Outcome of the underlying call is unknown — do not assume it failed.',
     },
   });
-  console.warn(
-    `[worker] Step row ${rowId} marked ambiguous (lease expired). Requires manual review.`,
+  // Also mark the run failed — otherwise it stays in_progress forever.
+  await markFailed(zapRunId, 'LEASE_EXPIRED', rowId);
+  logger.warn(
+    { zapRunStepId: rowId.toString(), zapRunId: zapRunId.toString() },
+    '[worker] Step marked ambiguous (lease expired) — requires manual review',
   );
   return null;
 }

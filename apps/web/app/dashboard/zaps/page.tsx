@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { api, Zap } from '../../../lib/api-client';
+import { api, Zap, Connector } from '../../../lib/api-client';
 
 export default function ZapsPage() {
   const router = useRouter();
@@ -12,6 +12,11 @@ export default function ZapsPage() {
   const [newName, setNewName] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [error, setError] = useState('');
+  
+  const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [triggers, setTriggers] = useState<import('../../../lib/api-client').AvailableTrigger[]>([]);
+  const [selectedConnector, setSelectedConnector] = useState('');
+  const [selectedTrigger, setSelectedTrigger] = useState('');
 
   useEffect(() => { loadZaps(); }, []);
 
@@ -38,21 +43,44 @@ export default function ZapsPage() {
 
   async function createZap(e: React.FormEvent) {
     e.preventDefault();
-    if (!newName.trim()) return;
+    if (!newName.trim() || !selectedTrigger) {
+      setError('Please provide a name and select a trigger.');
+      return;
+    }
     setCreating(true);
     try {
-      // Create a zap with a placeholder trigger — user configures in builder
       const zap = await api.zaps.create({
         name: newName.trim(),
         steps: [{
           stepType: 'trigger', position: 0,
-          availableTriggerId: 'razorpay:payment-captured',
+          availableTriggerId: selectedTrigger,
           config: {},
         }],
       });
       router.push(`/dashboard/zaps/${zap.id}`);
     } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Failed'); }
     finally { setCreating(false); }
+  }
+
+  async function openNewZapModal() {
+    setShowNew(true);
+    try {
+      const conn = await api.connectors.list();
+      setConnectors(conn);
+    } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Failed loading connectors'); }
+  }
+
+  async function handleConnectorChange(connectorId: string) {
+    setSelectedConnector(connectorId);
+    setSelectedTrigger('');
+    if (!connectorId) {
+      setTriggers([]);
+      return;
+    }
+    try {
+      const trigs = await api.connectors.triggers(connectorId);
+      setTriggers(trigs);
+    } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Failed loading triggers'); }
   }
 
   function statusBadge(active: boolean) {
@@ -68,7 +96,7 @@ export default function ZapsPage() {
           <h1 className="page-title">My Zaps</h1>
           <p className="page-subtitle">Automated workflows connecting your apps</p>
         </div>
-        <button id="new-zap-btn" className="btn btn-primary" onClick={() => setShowNew(true)}>
+        <button id="new-zap-btn" className="btn btn-primary" onClick={openNewZapModal}>
           ⚡ New Zap
         </button>
       </div>
@@ -87,6 +115,22 @@ export default function ZapsPage() {
                   placeholder="e.g. Razorpay → Slack notification"
                   value={newName} onChange={e => setNewName(e.target.value)} required />
               </div>
+              <div className="form-group">
+                <label className="form-label">Trigger App</label>
+                <select className="form-select" value={selectedConnector} onChange={e => handleConnectorChange(e.target.value)} required>
+                  <option value="">— Select an app —</option>
+                  {connectors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              {selectedConnector && (
+                <div className="form-group">
+                  <label className="form-label">Trigger Event</label>
+                  <select className="form-select" value={selectedTrigger} onChange={e => setSelectedTrigger(e.target.value)} required>
+                    <option value="">— Select an event —</option>
+                    {triggers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button type="button" className="btn btn-ghost" onClick={() => setShowNew(false)}>Cancel</button>
                 <button id="create-zap-submit" type="submit" className="btn btn-primary" disabled={creating}>
@@ -105,7 +149,7 @@ export default function ZapsPage() {
           <div className="empty-state-icon">⚡</div>
           <div className="empty-state-title">No zaps yet</div>
           <div className="empty-state-desc">Create your first zap to start automating workflows between your apps.</div>
-          <button className="btn btn-primary" style={{ marginTop: 8 }} onClick={() => setShowNew(true)}>Create your first Zap</button>
+          <button className="btn btn-primary" style={{ marginTop: 8 }} onClick={openNewZapModal}>Create your first Zap</button>
         </div>
       ) : (
         <div className="table-container">

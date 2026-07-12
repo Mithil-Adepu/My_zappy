@@ -4,19 +4,15 @@ import { env } from './config/env';
 import { initSentry } from './lib/sentry';
 import { startConsumer, pauseConsumer, disconnectConsumer } from './consumer/run-consumer';
 import { disconnectRedis } from './services/rate-limiter.service';
-import { registerAdapter } from './connectors/registry';
-import { slackSendMessageAdapter } from './connectors/slack/actions/send-message';
-import { razorpayCreatePaymentAdapter } from './connectors/razorpay/actions/create-payment';
+// registry.ts self-registers all adapters (slack, razorpay, github) at module load time
+// via its top-level registerAdapter() calls. No duplicate calls needed here.
+import './connectors/registry';
 import { logger } from './lib/logger';
 
 // Sentry must be initialised before any async code runs
 initSentry();
 
-
-// ─── Register all connector adapters ─────────────────────────────────────────
-registerAdapter(slackSendMessageAdapter);
-registerAdapter(razorpayCreatePaymentAdapter);
-logger.info('✅  Connector adapters registered: slack, razorpay');
+logger.info('✅  Connector adapters registered: slack, razorpay, github');
 
 // ─── Health endpoint ──────────────────────────────────────────────────────────
 const app = express();
@@ -30,9 +26,7 @@ app.get('/health', async (_req, res) => {
   }
 });
 
-const HEALTH_PORT = process.env.WORKER_HEALTH_PORT
-  ? parseInt(process.env.WORKER_HEALTH_PORT)
-  : 3004;
+const HEALTH_PORT = env.WORKER_HEALTH_PORT;
 
 app.listen(HEALTH_PORT, () => {
   logger.info({ port: HEALTH_PORT }, '🔧  worker health endpoint started');

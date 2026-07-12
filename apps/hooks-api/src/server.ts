@@ -9,7 +9,7 @@ import { logger } from './lib/logger';
 initSentry();
 
 
-export const app = express();
+export const app: import('express').Express = express();
 
 // NOTE: No express.json() here intentionally — rawBodyMiddleware captures raw bytes
 // for HMAC verification. JSON parsing happens inside the service after verification.

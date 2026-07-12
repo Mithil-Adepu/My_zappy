@@ -5,6 +5,7 @@ import { encrypt } from '../services/encryption.service';
 import { buildAuthUrl, exchangeCode } from '../services/oauth.service';
 import { createError } from '../middleware/error-handler.middleware';
 import { AuthenticatedRequest } from '../middleware/auth.middleware';
+import { env } from '../config/env';
 
 // ─── List connections ─────────────────────────────────────────────────────────
 
@@ -105,8 +106,9 @@ export async function oauthCallback(
       },
     });
 
-    // In production: redirect to web app with success indicator
-    res.json({ success: true, connectorId });
+    // Redirect browser back to web app connections page to complete the OAuth flow.
+    // The frontend initiated this by setting window.location.href = authUrl.
+    res.redirect(`${env.WEB_APP_URL}/dashboard/connections?connected=${connectorId}`);
   } catch (err) {
     next(err);
   }

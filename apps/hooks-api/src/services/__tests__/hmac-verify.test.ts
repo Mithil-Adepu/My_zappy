@@ -43,4 +43,13 @@ describe('hmac-verify', () => {
     const invalidSig2 = validSig.slice(0, -1) + (validSig.endsWith('f') ? 'e' : 'f');
     expect(verifyWebhook(body, invalidSig2, secret)).toBe(false);
   });
+  it('returns true for GitHub-style sha256=<hex> prefixed signature', () => {
+    const sig = `sha256=${makeSignature(body, secret)}`;
+    expect(verifyWebhook(body, sig, secret)).toBe(true);
+  });
+
+  it('returns false for GitHub-style prefix with wrong secret', () => {
+    const sig = `sha256=${makeSignature(body, 'wrong-secret')}`;
+    expect(verifyWebhook(body, sig, secret)).toBe(false);
+  });
 });

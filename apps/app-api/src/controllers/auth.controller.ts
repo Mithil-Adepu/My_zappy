@@ -18,8 +18,9 @@ const loginSchema = z.object({
 });
 
 function issueToken(userId: bigint): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return jwt.sign({ sub: userId.toString() }, env.JWT_SECRET, {
-    expiresIn: env.JWT_EXPIRES_IN,
+    expiresIn: env.JWT_EXPIRES_IN as any,
   });
 }
 

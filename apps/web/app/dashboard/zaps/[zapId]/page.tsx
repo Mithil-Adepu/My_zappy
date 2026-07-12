@@ -20,6 +20,10 @@ export default function ZapBuilderPage({ params }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  
+  const [showAddAction, setShowAddAction] = useState(false);
+  const [newActionConnector, setNewActionConnector] = useState('');
+  const [newActionId, setNewActionId] = useState('');
 
   useEffect(() => {
     Promise.all([
@@ -44,18 +48,28 @@ export default function ZapBuilderPage({ params }: Props) {
     }).catch(e => setError(e.message)).finally(() => setLoading(false));
   }, [zapId]);
 
-  async function addActionStep() {
-    if (!zap) return;
+  function openAddActionModal() {
+    setShowAddAction(true);
+  }
+
+  async function createActionStep(e: React.FormEvent) {
+    e.preventDefault();
+    if (!zap || !newActionId) return;
+    setSaving(true);
     const position = zap.steps.length;
     try {
       const step = await api.zaps.addStep(zapId, {
         stepType: 'action', position,
-        availableActionId: 'slack:send-message',
-        config: { channel: '', text: '' },
+        availableActionId: newActionId,
+        config: {},
       });
       setZap({ ...zap, steps: [...zap.steps, step] });
       setActiveStep(step.id);
+      setShowAddAction(false);
+      setNewActionConnector('');
+      setNewActionId('');
     } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Failed'); }
+    finally { setSaving(false); }
   }
 
   async function addFilterStep() {
@@ -99,9 +113,10 @@ export default function ZapBuilderPage({ params }: Props) {
 
   function stepIcon(step: ZapStep) {
     const connectorId = step.availableActionId?.split(':')[0] ?? step.availableTriggerId?.split(':')[0];
-    const c = connectors.find(c => c.id === connectorId);
-    if (c?.id === 'slack') return '💬';
-    if (c?.id === 'razorpay') return '💳';
+    if (connectorId === 'slack') return '💬';
+    if (connectorId === 'razorpay') return '💳';
+    if (connectorId === 'github') return '🐙';
+    if (connectorId === 'webhooks') return '🪝';
     if (step.stepType === 'filter') return '🔀';
     return '⚙️';
   }
@@ -139,6 +154,38 @@ export default function ZapBuilderPage({ params }: Props) {
 
       {error && <div className="alert alert-error" style={{ marginBottom: 20 }}>⚠️ {error} <button onClick={() => setError('')} style={{ marginLeft: 8, background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}>✕</button></div>}
 
+      {showAddAction && (
+        <div className="modal-backdrop" onClick={() => setShowAddAction(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2 className="modal-title">Add Action</h2>
+            <form onSubmit={createActionStep} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div className="form-group">
+                <label className="form-label">App</label>
+                <select className="form-select" value={newActionConnector} onChange={e => setNewActionConnector(e.target.value)} required>
+                  <option value="">— Select an app —</option>
+                  {connectors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              {newActionConnector && (
+                <div className="form-group">
+                  <label className="form-label">Action Event</label>
+                  <select className="form-select" value={newActionId} onChange={e => setNewActionId(e.target.value)} required>
+                    <option value="">— Select an action —</option>
+                    {(actions[newActionConnector] || []).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button type="button" className="btn btn-ghost" onClick={() => setShowAddAction(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={saving}>
+                  {saving ? 'Adding…' : 'Add Action →'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       <div className="zap-builder">
         {zap.steps.sort((a, b) => a.position - b.position).map((step, idx) => (
           <div key={step.id}>
@@ -156,17 +203,100 @@ export default function ZapBuilderPage({ params }: Props) {
               {activeStep === step.id && (
                 <div className="step-body" style={{ paddingTop: 16 }}>
                   {/* Trigger step */}
-                  {step.stepType === 'trigger' && (
-                    <div>
-                      <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 12 }}>
-                        This step listens for incoming webhooks. Share the webhook URL with the trigger app.
-                      </p>
-                      <div className="form-group">
-                        <label className="form-label">Trigger</label>
-                        <div className="code-block">{step.availableTrigger?.name ?? step.availableTriggerId}</div>
+                  {step.stepType === 'trigger' && (() => {
+                    const hooksBase = process.env.NEXT_PUBLIC_HOOKS_URL ?? 'http://localhost:3002';
+                    const webhookUrl = `${hooksBase}/hooks/${zapId}/${step.id}`;
+                    const connectorId = step.availableTriggerId?.split(':')[0] ?? '';
+                    const isGitHub = connectorId === 'github';
+                    const isCatchHook = step.availableTriggerId === 'webhooks:catch_hook';
+
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+                          {isGitHub
+                            ? 'Point your GitHub repository webhook to this URL. GitHub will send the event in the request body.'
+                            : isCatchHook
+                            ? 'Point any app\'s webhook to this URL. Sign requests with HMAC-SHA256 using your webhook secret.'
+                            : 'Point your app\'s webhook to this URL. Every POST triggers this Zap.'}
+                        </p>
+
+                        <div className="form-group">
+                          <label className="form-label">Trigger Event</label>
+                          <div className="code-block">{step.availableTrigger?.name ?? step.availableTriggerId}</div>
+                        </div>
+
+                        <div className="form-group">
+                          <label className="form-label">Webhook URL</label>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <div className="code-block" style={{ flex: 1, userSelect: 'all', cursor: 'text', fontSize: 11 }}>
+                              {webhookUrl}
+                            </div>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              style={{ flexShrink: 0 }}
+                              onClick={() => navigator.clipboard.writeText(webhookUrl)}
+                            >
+                              📋 Copy
+                            </button>
+                          </div>
+                        </div>
+
+                        {step.webhookSecret && (
+                          <div className="form-group">
+                            <label className="form-label">Webhook Secret</label>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <div className="code-block" style={{ flex: 1, fontSize: 11, userSelect: 'all', cursor: 'text', letterSpacing: '0.04em' }}>
+                                {step.webhookSecret}
+                              </div>
+                              <button
+                                className="btn btn-secondary btn-sm"
+                                style={{ flexShrink: 0 }}
+                                onClick={() => navigator.clipboard.writeText(step.webhookSecret!)}
+                              >
+                                📋 Copy
+                              </button>
+                            </div>
+                            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                              {isGitHub
+                                ? 'Paste this into GitHub → Settings → Webhooks → Secret.'
+                                : 'Use this as the HMAC-SHA256 signing key in your provider\'s webhook settings.'}
+                            </p>
+                          </div>
+                        )}
+
+                        <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '12px 14px', fontSize: 12 }}>
+                          <div style={{ fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>Required headers</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            {isGitHub ? (
+                              <>
+                                <div><code style={{ color: 'var(--orange)' }}>X-Hub-Signature-256</code> — HMAC-SHA256 of request body (prefixed <code>sha256=</code>)</div>
+                                <div><code style={{ color: 'var(--orange)' }}>X-GitHub-Delivery</code> — GitHub-supplied unique delivery UUID</div>
+                                <div><code style={{ color: 'var(--orange)' }}>X-GitHub-Event</code> — event type (e.g. <code>push</code>, <code>pull_request</code>)</div>
+                              </>
+                            ) : isCatchHook ? (
+                              <>
+                                <div><code style={{ color: 'var(--orange)' }}>X-Webhook-Signature</code> — HMAC-SHA256 of request body (hex)</div>
+                                <div><code style={{ color: 'var(--orange)' }}>X-Webhook-Id</code> — unique event ID for deduplication</div>
+                              </>
+                            ) : (
+                              <>
+                                <div><code style={{ color: 'var(--orange)' }}>X-{connectorId.charAt(0).toUpperCase() + connectorId.slice(1)}-Signature</code> — HMAC-SHA256 of request body</div>
+                                <div><code style={{ color: 'var(--orange)' }}>X-{connectorId.charAt(0).toUpperCase() + connectorId.slice(1)}-Event-Id</code> — unique event ID for deduplication</div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {isGitHub && (
+                          <div style={{ background: 'rgba(88, 166, 255, 0.08)', border: '1px solid rgba(88, 166, 255, 0.2)', borderRadius: 'var(--radius-md)', padding: '10px 14px', fontSize: 12, color: 'var(--text-secondary)' }}>
+                            <strong>ℹ️ GitHub setup:</strong> Go to your repo → Settings → Webhooks → Add webhook.
+                            Set Content type to <code>application/json</code>, paste the URL and secret above,
+                            and select only the event type matching this trigger.
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Action step */}
                   {step.stepType === 'action' && (
@@ -185,22 +315,25 @@ export default function ZapBuilderPage({ params }: Props) {
                       </div>
 
                       {/* Dynamic config fields */}
-                      {step.availableAction?.name === 'Send Message' || step.availableActionId === 'slack:send-message' ? (
+                      {step.availableAction?.inputSchema ? (
                         <>
-                          <div className="form-group">
-                            <label className="form-label">Channel</label>
-                            <input type="text" className="form-input" placeholder="#general or C1234567"
-                              value={(step.config.channel as string) ?? ''}
-                              onChange={e => updateStepConfig(step, { ...step.config, channel: e.target.value })} />
-                          </div>
-                          <div className="form-group">
-                            <label className="form-label">Message Text</label>
-                            <textarea className="form-input" rows={3}
-                              placeholder="Use {{payload.payment.entity.amount}} to insert trigger data"
-                              value={(step.config.text as string) ?? ''}
-                              onChange={e => updateStepConfig(step, { ...step.config, text: e.target.value })}
-                              style={{ resize: 'vertical' }} />
-                          </div>
+                          {Object.entries((step.availableAction.inputSchema as any).properties || {}).map(([key, schema]: [string, any]) => (
+                            <div className="form-group" key={key}>
+                              <label className="form-label">{schema.title || key}</label>
+                              {schema.type === 'string' && (key === 'text' || schema.title?.toLowerCase().includes('text') || schema.title?.toLowerCase().includes('description')) ? (
+                                <textarea className="form-input" rows={3}
+                                  placeholder={schema.description || `{{field.path}}`}
+                                  value={(step.config[key] as string) ?? ''}
+                                  onChange={e => updateStepConfig(step, { ...step.config, [key]: e.target.value })}
+                                  style={{ resize: 'vertical' }} />
+                              ) : (
+                                <input type="text" className="form-input"
+                                  placeholder={schema.description || `{{field.path}}`}
+                                  value={(step.config[key] as string) ?? ''}
+                                  onChange={e => updateStepConfig(step, { ...step.config, [key]: e.target.value })} />
+                              )}
+                            </div>
+                          ))}
                         </>
                       ) : (
                         <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>
@@ -241,8 +374,35 @@ export default function ZapBuilderPage({ params }: Props) {
                               conditions[ci] = { ...conditions[ci], value: e.target.value };
                               updateStepConfig(step, { ...step.config, conditions });
                             }} />
+                          <button
+                            className="btn btn-danger btn-sm"
+                            style={{ flexShrink: 0, padding: '6px 10px' }}
+                            title="Remove condition"
+                            onClick={() => {
+                              const conditions = (step.config.conditions as typeof cond[]).filter((_, i) => i !== ci);
+                              updateStepConfig(step, { ...step.config, conditions });
+                            }}>✕</button>
                         </div>
                       ))}
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => {
+                            const existing = (step.config.conditions ?? []) as Array<{ field: string; operator: string; value: unknown }>;
+                            updateStepConfig(step, { ...step.config, conditions: [...existing, { field: '', operator: 'eq', value: '' }] });
+                          }}>+ Add Condition</button>
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 'auto' }}>
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Logic:</span>
+                          {(['AND', 'OR'] as const).map(logic => (
+                            <button key={logic}
+                              className={`btn btn-sm ${(step.config.logic ?? 'AND') === logic ? 'btn-primary' : 'btn-secondary'}`}
+                              style={{ padding: '4px 10px', fontSize: 11 }}
+                              onClick={() => updateStepConfig(step, { ...step.config, logic })}>
+                              {logic}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -264,7 +424,7 @@ export default function ZapBuilderPage({ params }: Props) {
 
         {/* Add step buttons */}
         <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <button className="step-add-btn" id="add-action-btn" onClick={addActionStep}>
+          <button className="step-add-btn" id="add-action-btn" onClick={openAddActionModal}>
             ＋ Add Action
           </button>
           <button className="step-add-btn" id="add-filter-btn" onClick={addFilterStep} style={{ borderStyle: 'dashed' }}>

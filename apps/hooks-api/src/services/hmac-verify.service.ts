@@ -4,6 +4,10 @@ import crypto from 'crypto';
  * Verifies a webhook's HMAC-SHA256 signature.
  * Exactly as specified in design doc §5.
  *
+ * Supports two signature formats:
+ *   - Plain hex (Razorpay, generic): "abc123..."
+ *   - Prefixed hex (GitHub):        "sha256=abc123..."
+ *
  * Order matters: capture rawBody → verify → parse → ingest.
  * A 401 is returned on failure with NO DB write.
  *
@@ -22,8 +26,13 @@ export function verifyWebhook(
     .update(rawBody)
     .digest('hex');
 
+  // Strip "sha256=" prefix if present (GitHub format)
+  const normalizedSignature = receivedSignature.startsWith('sha256=')
+    ? receivedSignature.slice(7)
+    : receivedSignature;
+
   const computedBuf = Buffer.from(computed, 'hex');
-  const receivedBuf = Buffer.from(receivedSignature, 'hex');
+  const receivedBuf = Buffer.from(normalizedSignature, 'hex');
 
   // Length guard before timingSafeEqual (required — throws if lengths differ)
   if (computedBuf.length !== receivedBuf.length) return false;

@@ -2,6 +2,7 @@ import { prisma } from '@zapier-clone/db';
 import { getProducer } from '../kafka/producer';
 import { env } from '../config/env';
 import { ZapRunRequestedEvent } from '@zapier-clone/types';
+import { logger } from '../lib/logger';
 
 interface OutboxRow {
   id: bigint;
@@ -58,7 +59,7 @@ export async function pollOutbox(): Promise<void> {
         await processRow(row);
       }
     } catch (err) {
-      console.error('[relay] Poll error:', err);
+      logger.error({ err }, '[relay] Poll error');
     }
 
     // Wait before next sweep
@@ -100,9 +101,9 @@ async function processRow(row: OutboxRow): Promise<void> {
       },
     });
 
-    console.log(`[relay] Dispatched outbox row ${row.id} (event: ${row.eventId})`);
+    logger.info({ outboxRowId: row.id.toString(), eventId: row.eventId }, '[relay] Dispatched outbox row');
   } catch (err) {
-    console.error(`[relay] Failed to dispatch row ${row.id}:`, err);
+    logger.error({ err, outboxRowId: row.id.toString() }, '[relay] Failed to dispatch row');
 
     const newAttempts = row.attempts + 1;
     if (newAttempts >= row.maxAttempts) {
@@ -111,8 +112,9 @@ async function processRow(row: OutboxRow): Promise<void> {
         where: { id: row.id },
         data: { status: 'dead', attempts: newAttempts },
       });
-      console.error(
-        `[relay] Row ${row.id} moved to dead after ${newAttempts} attempts. MANUAL REVIEW REQUIRED.`,
+      logger.error(
+        { outboxRowId: row.id.toString(), attempts: newAttempts },
+        '[relay] Row moved to dead after max attempts — MANUAL REVIEW REQUIRED',
       );
     } else {
       // Stay pending, retry next sweep

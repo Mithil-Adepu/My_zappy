@@ -27,11 +27,20 @@ export interface ConnectorAdapter {
 
 // ─── Registry ─────────────────────────────────────────────────────────────────
 
+import { slackSendMessageAdapter } from './slack/actions/send-message';
+import { razorpayCreatePaymentAdapter } from './razorpay/actions/create-payment';
+import { githubCreateIssueAdapter } from './github/actions/create-issue';
+
 const registry = new Map<string, ConnectorAdapter>();
 
 export function registerAdapter(adapter: ConnectorAdapter): void {
   registry.set(adapter.connectorId, adapter);
 }
+
+// Register all adapters
+registerAdapter(slackSendMessageAdapter);
+registerAdapter(razorpayCreatePaymentAdapter);
+registerAdapter(githubCreateIssueAdapter);
 
 export function getAdapter(actionId: string): ConnectorAdapter {
   // actionId format: "connectorId:action-name" e.g. "slack:send-message"

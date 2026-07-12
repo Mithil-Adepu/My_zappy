@@ -10,11 +10,11 @@ import { runsRouter } from './routes/runs.routes';
 import { errorHandler } from './middleware/error-handler.middleware';
 import { startCronJobs } from './jobs';
 
-export const app = express();
+export const app: import('express').Express = express();
 
 // ─── Middleware ──────────────────────────────────────────────────────────────
 app.use(helmet());
-app.use(cors());
+app.use(cors({ origin: env.WEB_APP_URL, credentials: true }));
 app.use(express.json());
 
 // ─── Health ──────────────────────────────────────────────────────────────────
