@@ -96,7 +96,7 @@ export async function markStepCompleted(
 ): Promise<void> {
   await prisma.zapRunStep.update({
     where: { id: claimedId },
-    data: { status: 'completed', output: output as Prisma.InputJsonValue },
+    data: { status: 'completed', output: output as unknown as Parameters<typeof prisma.zapRunStep.update>[0]['data']['output'] },
   });
 }
 
@@ -108,7 +108,7 @@ export async function recordStepResult(
     where: { id: claimedId },
     data: {
       status: result.status,
-      output: (result.output ?? null) as Prisma.NullableJsonNullValueInput | Prisma.InputJsonValue,
+      output: (result.output ?? null) as unknown as Parameters<typeof prisma.zapRunStep.update>[0]['data']['output'],
       errorCode: result.errorCode ?? null,
       errorMessage: result.errorMessage ?? null,
     },

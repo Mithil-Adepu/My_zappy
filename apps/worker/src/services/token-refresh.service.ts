@@ -35,31 +35,39 @@ export async function getCredentials(connectionId: bigint): Promise<Credentials>
 /**
  * Refreshes an expired OAuth token.
  * Called lazily on 401 during execution (primary guarantee).
+ *
+ * TASK-3.3: RFC 6749 §6 requires client_id + client_secret in the refresh
+ * request. These are sourced from OAUTH_CLIENT_CONFIGS env var.
  */
 export async function refreshToken(connectionId: bigint): Promise<void> {
   const connection = await prisma.connection.findUniqueOrThrow({
     where: { id: connectionId },
-    include: { connector: { select: { tokenUrl: true, authType: true } } },
+    include: { connector: { select: { tokenUrl: true, authType: true, id: true } } },
   });
 
   if (connection.connector.authType !== 'oauth' || !connection.refreshToken) {
     throw new Error('Cannot refresh: not an OAuth connection');
   }
 
-  // Token URL and client credentials come from app-api env vars in production.
-  // For the worker, we use the stored refresh token and make a generic request.
-  // In a real deployment, the OAuth client_id/secret would be in worker env too.
   const tokenUrl = connection.connector.tokenUrl!;
   const storedRefreshToken = decrypt(connection.refreshToken);
 
-  const response = await axios.post(
-    tokenUrl,
-    new URLSearchParams({
-      refresh_token: storedRefreshToken,
-      grant_type: 'refresh_token',
-    }),
-    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
-  );
+  // Resolve client credentials from OAUTH_CLIENT_CONFIGS env var
+  const oauthConfigs = env.OAUTH_CLIENT_CONFIGS
+    ? (JSON.parse(env.OAUTH_CLIENT_CONFIGS) as Record<string, { clientId?: string; clientSecret?: string }>)
+    : {};
+  const clientCreds = oauthConfigs[connection.connector.id] ?? {};
+
+  const params = new URLSearchParams({
+    refresh_token: storedRefreshToken,
+    grant_type: 'refresh_token',
+  });
+  if (clientCreds.clientId) params.set('client_id', clientCreds.clientId);
+  if (clientCreds.clientSecret) params.set('client_secret', clientCreds.clientSecret);
+
+  const response = await axios.post(tokenUrl, params, {
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  });
 
   const data = response.data;
   if (data.error) throw new Error(`Token refresh failed: ${data.error}`);

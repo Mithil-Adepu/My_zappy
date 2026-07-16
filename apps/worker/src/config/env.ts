@@ -14,6 +14,12 @@ const envSchema = z.object({
   WORKER_HEALTH_PORT: z.string().default('3004').transform(Number),
   ENCRYPTION_KEY: z.string().length(64),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  /**
+   * JSON map of connector OAuth credentials for token refresh.
+   * Format: { "slack": { "clientId": "...", "clientSecret": "..." }, ... }
+   * TASK-3.3: worker needs client_id/secret for RFC 6749 §6 token refresh.
+   */
+  OAUTH_CLIENT_CONFIGS: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

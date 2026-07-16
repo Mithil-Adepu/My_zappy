@@ -15,6 +15,9 @@ export interface AdapterResult {
 }
 
 export interface ConnectorAdapter {
+  /** Full action ID — e.g. "slack:send-message". Used as the registry key. */
+  actionId: string;
+  /** Connector prefix — e.g. "slack". Used for OAuth/credential lookup. */
   connectorId: string;
   supportsIdempotencyKey: boolean;
   buildRequest(
@@ -34,20 +37,19 @@ import { githubCreateIssueAdapter } from './github/actions/create-issue';
 const registry = new Map<string, ConnectorAdapter>();
 
 export function registerAdapter(adapter: ConnectorAdapter): void {
-  registry.set(adapter.connectorId, adapter);
+  registry.set(adapter.actionId, adapter);
 }
 
-// Register all adapters
+// Register all adapters — key is the full action ID (connectorId:action-name)
 registerAdapter(slackSendMessageAdapter);
 registerAdapter(razorpayCreatePaymentAdapter);
 registerAdapter(githubCreateIssueAdapter);
 
 export function getAdapter(actionId: string): ConnectorAdapter {
-  // actionId format: "connectorId:action-name" e.g. "slack:send-message"
-  const connectorId = actionId.split(':')[0];
-  const adapter = registry.get(connectorId);
+  const adapter = registry.get(actionId);
   if (!adapter) {
-    throw new Error(`No adapter registered for connector: ${connectorId} (actionId: ${actionId})`);
+    throw new Error(`No adapter registered for actionId: ${actionId}`);
   }
   return adapter;
 }
+

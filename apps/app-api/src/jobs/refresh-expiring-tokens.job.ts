@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { prisma } from '@zapier-clone/db';
 import { refreshAccessToken } from '../services/oauth.service';
+import { logger } from '../lib/logger';
 
 /**
  * Refreshes OAuth connections expiring within the next 30 minutes.
@@ -10,7 +11,7 @@ import { refreshAccessToken } from '../services/oauth.service';
  */
 export function startRefreshExpiringTokensJob(): void {
   cron.schedule('*/15 * * * *', async () => {
-    console.log('[cron] Checking for expiring tokens...');
+    logger.info('[cron] Checking for expiring tokens...');
     try {
       const threshold = new Date(Date.now() + 30 * 60 * 1000); // 30 min from now
       const expiring = await prisma.connection.findMany({
@@ -24,18 +25,16 @@ export function startRefreshExpiringTokensJob(): void {
       for (const conn of expiring) {
         try {
           await refreshAccessToken(conn.id);
-          console.log(`[cron] Refreshed token for connection ${conn.id}`);
+          logger.info({ connectionId: conn.id.toString(), connectorId: conn.connectorId }, '[cron] Refreshed token');
         } catch (err) {
-          console.error(
-            `[cron] Failed to refresh token for connection ${conn.id}:`,
-            err,
-          );
+          logger.error({ err, connectionId: conn.id.toString() }, '[cron] Failed to refresh token');
         }
       }
 
-      console.log(`[cron] Token refresh sweep done. ${expiring.length} refreshed.`);
+      logger.info({ count: expiring.length }, '[cron] Token refresh sweep done');
     } catch (err) {
-      console.error('[cron] refresh-expiring-tokens failed:', err);
+      logger.error({ err }, '[cron] refresh-expiring-tokens failed');
     }
   });
 }
+

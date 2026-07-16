@@ -26,6 +26,10 @@ interface SnapshotStep {
  * Sequential executor — walks zap_steps by position, one at a time.
  * Implements design doc §9.2 exactly.
  *
+ * Converted from recursion to iteration (B14 fix):
+ * Recursive resume() was N-deep for N steps, risking stack overflow on long zaps.
+ * Now uses a while loop with explicit loop control — identical semantics, O(1) stack.
+ *
  * Every terminal branch explicitly calls a runState method.
  * No run is ever left stuck at in_progress forever.
  */
@@ -35,7 +39,7 @@ export async function resume(
 ): Promise<void> {
   const steps = (zapRun.stepSnapshot as SnapshotStep[]) ?? [];
 
-  // Find the highest completed position
+  // Find the highest completed position to determine where to resume from
   const completedSteps = await prisma.zapRunStep.findMany({
     where: { zapRunId: zapRun.id, status: 'completed' },
     include: { zapStep: { select: { position: true } } },
@@ -46,87 +50,94 @@ export async function resume(
       ? Math.max(...completedSteps.map((s: { zapStep: { position: number } }) => s.zapStep.position))
       : -1;
 
-  const nextPosition = maxCompletedPosition + 1;
-  const nextStep = steps.find((s) => s.position === nextPosition);
+  let currentPosition = maxCompletedPosition + 1;
+  let currentContext = payloadContext;
 
-  if (!nextStep) {
-    // All steps done — mark completed
-    logger.info({ zapRunId: zapRun.id.toString() }, 'zap run completed successfully');
-    await markCompleted(zapRun.id);
-    return;
-  }
+  // Iterative loop — replaces recursive resume() calls
+  while (true) {
+    const nextStep = steps.find((s) => s.position === currentPosition);
 
-  const stepId = BigInt(nextStep.id);
-  const claimed = await claim(zapRun.id, stepId);
-
-  if (!claimed) {
-    // Owned elsewhere or already done — safe no-op
-    return;
-  }
-
-  // ─── Filter step ─────────────────────────────────────────────────────────
-  if (nextStep.stepType === 'filter') {
-    const passed = evaluateFilter(nextStep.config, payloadContext);
-
-    await markStepCompleted(claimed.id, { passed });
-
-    if (!passed) {
-      logger.info({ zapRunId: zapRun.id.toString(), stepId: stepId.toString() }, 'filter not matched — run marked filtered');
-      await markFiltered(zapRun.id);
-      return; // Terminal: filtered
+    if (!nextStep) {
+      // All steps done — mark completed
+      logger.info({ zapRunId: zapRun.id.toString() }, 'zap run completed successfully');
+      await markCompleted(zapRun.id);
+      return;
     }
 
-    // Filter passed — continue to next step
-    await resume(zapRun, payloadContext);
-    return;
-  }
+    const stepId = BigInt(nextStep.id);
+    const claimed = await claim(zapRun.id, stepId);
 
-  // ─── Action step ─────────────────────────────────────────────────────────
-  const stepForRunner = {
-    id: stepId,
-    availableActionId: nextStep.availableActionId,
-    connectionId: nextStep.connectionId ? BigInt(nextStep.connectionId) : null,
-    config: nextStep.config,
-    availableAction: nextStep.availableAction,
-  };
+    if (!claimed) {
+      // Owned elsewhere or already done — safe no-op
+      return;
+    }
 
-  const result = await runStep(
-    stepForRunner,
-    payloadContext,
-    claimed.idempotencyKey,
-    claimed.id,
-  );
+    // ─── Filter step ─────────────────────────────────────────────────────────
+    if (nextStep.stepType === 'filter') {
+      const passed = evaluateFilter(nextStep.config, currentContext);
 
-  await recordStepResult(claimed.id, result);
+      await markStepCompleted(claimed.id, { passed });
 
-  if (result.status === 'completed') {
-    // Merge step output into payload context for use by subsequent steps
-    const enrichedContext = {
-      ...payloadContext,
-      [`step_${nextPosition}`]: result.output ?? {},
+      if (!passed) {
+        logger.info({ zapRunId: zapRun.id.toString(), stepId: stepId.toString() }, 'filter not matched — run marked filtered');
+        await markFiltered(zapRun.id);
+        return; // Terminal: filtered
+      }
+
+      // Filter passed — advance to next step
+      currentPosition++;
+      continue;
+    }
+
+    // ─── Action step ─────────────────────────────────────────────────────────
+    const stepForRunner = {
+      id: stepId,
+      availableActionId: nextStep.availableActionId,
+      connectionId: nextStep.connectionId ? BigInt(nextStep.connectionId) : null,
+      config: nextStep.config,
+      availableAction: nextStep.availableAction,
     };
-    await resume(zapRun, enrichedContext);
-    return;
-  }
 
-  if (result.status === 'processing') {
-    // Rate-limited — leave in processing, will retry
-    return;
-  }
-
-  // failed or ambiguous — explicitly terminate run
-  if (result.status === 'ambiguous') {
-    // §7.2.3 — Explicit alert on ambiguous step (SIGKILL mid-execution, non-idempotent connector)
-    logger.error(
-      { zapRunId: zapRun.id.toString(), stepId: stepId.toString(), errorCode: result.errorCode },
-      '[ALERT] Step transitioned to ambiguous — run halted. Manual investigation required.',
+    const result = await runStep(
+      stepForRunner,
+      currentContext,
+      claimed.idempotencyKey,
+      claimed.id,
     );
-  } else {
-    logger.warn({ zapRunId: zapRun.id.toString(), stepId: stepId.toString(), status: result.status, errorCode: result.errorCode }, 'step failed — run halted');
+
+    await recordStepResult(claimed.id, result);
+
+    if (result.status === 'completed') {
+      // Merge step output into payload context for use by subsequent steps
+      currentContext = {
+        ...currentContext,
+        [`step_${currentPosition}`]: result.output ?? {},
+      };
+      currentPosition++;
+      continue;
+    }
+
+    if (result.status === 'processing') {
+      // Rate-limited — leave in processing, will retry via retry-stuck-steps job
+      return;
+    }
+
+    // failed or ambiguous — explicitly terminate run
+    if (result.status === 'ambiguous') {
+      // §7.2.3 — Explicit alert on ambiguous step (SIGKILL mid-execution, non-idempotent connector)
+      logger.error(
+        { zapRunId: zapRun.id.toString(), stepId: stepId.toString(), errorCode: result.errorCode },
+        '[ALERT] Step transitioned to ambiguous — run halted. Manual investigation required.',
+      );
+    } else {
+      logger.warn({ zapRunId: zapRun.id.toString(), stepId: stepId.toString(), status: result.status, errorCode: result.errorCode }, 'step failed — run halted');
+    }
+    await markFailed(
+      zapRun.id,
+      result.errorCode ?? result.status,
+      stepId,
+    );
+    return;
   }
-  await markFailed(
-    zapRun.id,
-    result.errorCode ?? result.status,
-    stepId,
-  );
 }
+

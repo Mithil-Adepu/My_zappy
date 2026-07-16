@@ -11,6 +11,7 @@ interface RazorpayPaymentResponse {
 }
 
 export const razorpayCreatePaymentAdapter: ConnectorAdapter = {
+  actionId: 'razorpay:create-payment',
   connectorId: 'razorpay',
   // Razorpay supports X-Idempotency-Key — provider-side dedup on retry.
   // Design doc §10.

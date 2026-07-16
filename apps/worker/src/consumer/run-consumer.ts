@@ -131,19 +131,37 @@ export async function startConsumer(): Promise<void> {
   });
 
   await c.run({
-    eachMessage: async ({ message }) => {
-      if (!message.value) return;
-      try {
-        const event = JSON.parse(message.value.toString()) as ZapRunRequestedEvent;
-        await onMessage(event);
-      } catch (err) {
-        logger.error({ err }, '[worker] Error processing message');
+    // TASK-3.6: Use eachBatch so we can call heartbeat() during long-running
+    // message processing. eachMessage blocks the heartbeat for the full
+    // duration of the handler, causing session timeouts on complex zaps.
+    autoCommit: false,
+    eachBatch: async ({ batch, resolveOffset, heartbeat, commitOffsetsIfNecessary }) => {
+      for (const message of batch.messages) {
+        if (shuttingDown) break;
+        if (!message.value) {
+          resolveOffset(message.offset);
+          await heartbeat();
+          continue;
+        }
+
+        try {
+          const event = JSON.parse(message.value.toString()) as ZapRunRequestedEvent;
+          await onMessage(event);
+        } catch (err) {
+          logger.error({ err }, '[worker] Error processing message');
+        }
+
+        resolveOffset(message.offset);
+        // Heartbeat after each message to prevent session timeout
+        await heartbeat();
       }
+      await commitOffsetsIfNecessary();
     },
   });
 
   logger.info('✅  Kafka consumer running');
 }
+
 
 export async function pauseConsumer(): Promise<void> {
   consumer?.pause([{ topic: env.KAFKA_TOPIC_ZAP_RUN_REQUESTED }]);

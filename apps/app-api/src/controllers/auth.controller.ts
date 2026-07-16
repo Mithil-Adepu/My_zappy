@@ -5,6 +5,8 @@ import { z } from 'zod';
 import { prisma } from '@zapier-clone/db';
 import { env } from '../config/env';
 import { createError } from '../middleware/error-handler.middleware';
+import { AuthenticatedRequest } from '../middleware/auth.middleware';
+
 
 const signupSchema = z.object({
   name: z.string().min(1).max(100),
@@ -17,11 +19,10 @@ const loginSchema = z.object({
   password: z.string(),
 });
 
-function issueToken(userId: bigint): string {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return jwt.sign({ sub: userId.toString() }, env.JWT_SECRET, {
-    expiresIn: env.JWT_EXPIRES_IN as any,
-  });
+function issueToken(userId: bigint, name: string): string {
+  return jwt.sign({ sub: userId.toString(), name }, env.JWT_SECRET, {
+    expiresIn: env.JWT_EXPIRES_IN,
+  } as jwt.SignOptions);
 }
 
 export async function signup(
@@ -48,7 +49,7 @@ export async function signup(
       select: { id: true, name: true, email: true },
     });
 
-    const token = issueToken(user.id);
+    const token = issueToken(user.id, user.name);
     res.status(201).json({
       token,
       user: { id: user.id.toString(), name: user.name, email: user.email },
@@ -81,7 +82,7 @@ export async function login(
       throw createError('Invalid credentials', 401);
     }
 
-    const token = issueToken(user.id);
+    const token = issueToken(user.id, user.name);
     res.json({
       token,
       user: { id: user.id.toString(), name: user.name, email: user.email },
@@ -97,7 +98,7 @@ export async function me(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const { userId } = req as Request & { userId: bigint };
+    const { userId } = req as AuthenticatedRequest;
     const user = await prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: { id: true, name: true, email: true, createdAt: true },

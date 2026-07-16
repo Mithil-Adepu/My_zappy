@@ -15,6 +15,7 @@
     "@zapier-clone/types": "workspace:*",
     "dotenv": "^17.4.2",
     "express": "^4.19.2",
+    "express-rate-limit": "^7.3.1",
     "helmet": "^7.1.0",
     "pino": "^10.3.1",
     "uuid": "^9.0.1",

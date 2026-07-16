@@ -9,6 +9,7 @@ interface SlackResponse {
 }
 
 export const slackSendMessageAdapter: ConnectorAdapter = {
+  actionId: 'slack:send-message',
   connectorId: 'slack',
   // Slack has no idempotency key support — ambiguous timeouts rely solely
   // on the ambiguous status path. Design doc §10.

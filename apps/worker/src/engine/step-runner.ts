@@ -101,7 +101,25 @@ export async function runStep(
   );
 }
 
+/**
+ * Network errors where we cannot determine if the remote received the request.
+ * These must be treated as 'ambiguous' — not 'failed' — to prevent blind retries
+ * of non-idempotent operations.
+ */
+const AMBIGUOUS_NETWORK_CODES = new Set([
+  'ECONNABORTED',   // axios client timeout
+  'ECONNRESET',     // connection reset mid-flight
+  'ETIMEDOUT',      // socket-level timeout
+  'ENOTFOUND',      // DNS failure (may be transient)
+  'ERR_SOCKET_CONNECTION_TIMEOUT',
+]);
+
+function isAmbiguousNetworkError(code?: string): boolean {
+  return code !== undefined && AMBIGUOUS_NETWORK_CODES.has(code);
+}
+
 async function executeWithRefresh(
+
   step: ZapStepWithAction,
   mappedPayload: Record<string, unknown>,
   credentials: Awaited<ReturnType<typeof getCredentials>>,
@@ -142,8 +160,8 @@ async function executeWithRefresh(
       };
     }
 
-    if (axiosErr.code === 'ECONNABORTED' || (axiosErr.response?.status ?? 0) >= 500) {
-      // Timeout or server error — outcome unknown
+    if (isAmbiguousNetworkError(axiosErr.code) || (axiosErr.response?.status ?? 0) >= 500) {
+      // Timeout or server error — outcome unknown (request may have been received)
       return {
         status: 'ambiguous',
         errorCode: 'AMBIGUOUS_TIMEOUT',

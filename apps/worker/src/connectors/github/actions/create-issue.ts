@@ -9,6 +9,7 @@ interface GitHubResponse {
 }
 
 export const githubCreateIssueAdapter: ConnectorAdapter = {
+  actionId: 'github:create-issue',
   connectorId: 'github',
   supportsIdempotencyKey: false,
 

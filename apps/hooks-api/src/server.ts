@@ -1,5 +1,7 @@
 import express from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { env } from './config/env';
 import { initSentry } from './lib/sentry';
 import { webhookRouter } from './routes/webhook.routes';
@@ -32,8 +34,27 @@ app.get('/health', async (_req, res) => {
   }
 });
 
-// Webhook receiver
-app.use('/hooks', webhookRouter);
+// Rate limiter: 300 requests/min per IP on webhook ingestion endpoint
+const webhookLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 300,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Slow down.' },
+});
+
+// Webhook receiver (5MB body limit handled in rawBodyMiddleware)
+app.use('/hooks', webhookLimiter, webhookRouter);
+
+// ─── Global Error Handler ────────────────────────────────────────────────────
+// Catches any thrown error in route handlers that wasn't caught internally
+app.use((err: Error & { statusCode?: number }, _req: Request, res: Response, _next: NextFunction) => {
+  const statusCode = err.statusCode ?? 500;
+  const message = statusCode === 500 ? 'Internal server error' : err.message;
+  logger.error({ err, statusCode }, '[hooks-api] unhandled error');
+  res.status(statusCode).json({ error: message });
+});
+
 
 if (require.main === module) {
   app.listen(env.HOOKS_API_PORT, () => {

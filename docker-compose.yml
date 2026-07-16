@@ -1,9 +1,9 @@
-version: '3.9'
 
 # NOTE: The 'web' (Next.js) service is intentionally NOT listed here.
 # It is deployed separately to Vercel (serverless) and communicates with
 # app-api and hooks-api over HTTPS. See §17 of the design document.
 # Run the web app locally with: cd apps/web && pnpm dev
+
 
 services:
   # ─── Infrastructure ────────────────────────────────────────────────────────

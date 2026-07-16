@@ -40,12 +40,19 @@ process.on('SIGTERM', async () => {
 });
 
 process.on('SIGINT', async () => {
-  logger.info('[relay] SIGINT received');
+  logger.info('[relay] SIGINT received — finishing in-flight poll before exit');
   requestStop();
+
+  if (currentPollPromise) {
+    await currentPollPromise;
+  }
+
   await disconnectProducer();
   await prisma.$disconnect();
+  logger.info('[relay] Shutdown complete');
   process.exit(0);
 });
+
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 const PORT = env.RELAY_HEALTH_PORT;

@@ -2,10 +2,11 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '@zapier-clone/db';
 import { encrypt } from '../services/encryption.service';
-import { buildAuthUrl, exchangeCode } from '../services/oauth.service';
+import { buildAuthUrl, exchangeCode, verifyOAuthState } from '../services/oauth.service';
 import { createError } from '../middleware/error-handler.middleware';
 import { AuthenticatedRequest } from '../middleware/auth.middleware';
 import { env } from '../config/env';
+
 
 // ─── List connections ─────────────────────────────────────────────────────────
 
@@ -76,11 +77,15 @@ export async function oauthCallback(
     const { code, state } = req.query as { code: string; state: string };
     if (!code || !state) throw createError('Missing code or state', 400);
 
-    const { connectorId, userId } = JSON.parse(
-      Buffer.from(state, 'base64').toString('utf8'),
-    ) as { connectorId: string; userId: string };
+    // SECURITY: verify HMAC signature on state to prevent CSRF (TASK-2.1)
+    const { connectorId, userId } = verifyOAuthState(state);
 
     const tokens = await exchangeCode(connectorId, code);
+
+    // Fetch the connector name for a human-readable label (TASK-4.2)
+    const connector = await prisma.connector.findUnique({ where: { id: connectorId } });
+    const connectorName = connector?.name ?? connectorId;
+    const label = `${connectorName} (${tokens.externalAccountId})`;
 
     await prisma.connection.upsert({
       where: {
@@ -93,13 +98,14 @@ export async function oauthCallback(
       create: {
         userId: BigInt(userId),
         connectorId,
-        label: connectorId,
+        label,
         externalAccountId: tokens.externalAccountId,
         accessToken: encrypt(tokens.accessToken),
         refreshToken: encrypt(tokens.refreshToken),
         expiresAt: tokens.expiresAt,
       },
       update: {
+        label,
         accessToken: encrypt(tokens.accessToken),
         refreshToken: encrypt(tokens.refreshToken),
         expiresAt: tokens.expiresAt,
@@ -107,7 +113,6 @@ export async function oauthCallback(
     });
 
     // Redirect browser back to web app connections page to complete the OAuth flow.
-    // The frontend initiated this by setting window.location.href = authUrl.
     res.redirect(`${env.WEB_APP_URL}/dashboard/connections?connected=${connectorId}`);
   } catch (err) {
     next(err);

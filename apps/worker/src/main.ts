@@ -1,9 +1,11 @@
 import express from 'express';
+import cron from 'node-cron';
 import { prisma } from '@zapier-clone/db';
 import { env } from './config/env';
 import { initSentry } from './lib/sentry';
 import { startConsumer, pauseConsumer, disconnectConsumer } from './consumer/run-consumer';
 import { disconnectRedis } from './services/rate-limiter.service';
+import { retryStuckSteps } from './services/retry-stuck-steps.job';
 // registry.ts self-registers all adapters (slack, razorpay, github) at module load time
 // via its top-level registerAdapter() calls. No duplicate calls needed here.
 import './connectors/registry';
@@ -60,3 +62,15 @@ startConsumer().catch((err) => {
   process.exit(1);
 });
 
+// ─── Retry stuck steps cron (every 2 minutes) ─────────────────────────────────
+// Rate-limited steps return 'processing' and exit. Without this cron they stay
+// stuck indefinitely. Matches the RETRY_AFTER_MINUTES constant in the job file.
+cron.schedule('*/2 * * * *', async () => {
+  try {
+    await retryStuckSteps();
+  } catch (err) {
+    logger.error({ err }, '[worker] retryStuckSteps cron failed');
+  }
+});
+
+logger.info('✅  retryStuckSteps cron scheduled (every 2 minutes)');

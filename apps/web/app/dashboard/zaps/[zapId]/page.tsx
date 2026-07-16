@@ -3,6 +3,19 @@ import { useEffect, useState, use } from 'react';
 import Link from 'next/link';
 import { api, ZapWithSteps, ZapStep, Connector, AvailableAction, Connection } from '../../../../lib/api-client';
 
+/** JSON-Schema shape for a single input field from the connector catalog. */
+interface InputSchemaProperty {
+  type?: string;
+  title?: string;
+  description?: string;
+  enum?: string[];
+  required?: boolean;
+}
+interface InputSchema {
+  properties?: Record<string, InputSchemaProperty>;
+  required?: string[];
+}
+
 interface Props { params: Promise<{ zapId: string }> }
 
 const OPERATOR_LABELS: Record<string, string> = {
@@ -24,6 +37,7 @@ export default function ZapBuilderPage({ params }: Props) {
   const [showAddAction, setShowAddAction] = useState(false);
   const [newActionConnector, setNewActionConnector] = useState('');
   const [newActionId, setNewActionId] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -37,19 +51,30 @@ export default function ZapBuilderPage({ params }: Props) {
       z.steps.forEach(step => {
         if (step.availableActionId) {
           const connectorId = step.availableActionId.split(':')[0];
-          if (!actions[connectorId]) {
-            actionLoads.push(
-              api.connectors.actions(connectorId).then(acts => setActions(a => ({ ...a, [connectorId]: acts })))
-            );
-          }
+          actionLoads.push(
+            api.connectors.actions(connectorId).then(acts => setActions(a => ({ ...a, [connectorId]: acts })))
+          );
         }
       });
       return Promise.all(actionLoads);
     }).catch(e => setError(e.message)).finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zapId]);
 
   function openAddActionModal() {
     setShowAddAction(true);
+  }
+
+  async function handleNewActionConnectorChange(connectorId: string) {
+    setNewActionConnector(connectorId);
+    setNewActionId('');
+    if (!connectorId) return;
+    setActionLoading(true);
+    try {
+      const acts = await api.connectors.actions(connectorId);
+      setActions(a => ({ ...a, [connectorId]: acts }));
+    } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Failed loading actions'); }
+    finally { setActionLoading(false); }
   }
 
   async function createActionStep(e: React.FormEvent) {
@@ -161,7 +186,7 @@ export default function ZapBuilderPage({ params }: Props) {
             <form onSubmit={createActionStep} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div className="form-group">
                 <label className="form-label">App</label>
-                <select className="form-select" value={newActionConnector} onChange={e => setNewActionConnector(e.target.value)} required>
+                <select className="form-select" value={newActionConnector} onChange={e => handleNewActionConnectorChange(e.target.value)} required>
                   <option value="">— Select an app —</option>
                   {connectors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
@@ -169,10 +194,17 @@ export default function ZapBuilderPage({ params }: Props) {
               {newActionConnector && (
                 <div className="form-group">
                   <label className="form-label">Action Event</label>
-                  <select className="form-select" value={newActionId} onChange={e => setNewActionId(e.target.value)} required>
-                    <option value="">— Select an action —</option>
-                    {(actions[newActionConnector] || []).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                  </select>
+                  {actionLoading ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0' }}>
+                      <div className="spinner" style={{ width: 16, height: 16 }} />
+                      <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading actions…</span>
+                    </div>
+                  ) : (
+                    <select className="form-select" value={newActionId} onChange={e => setNewActionId(e.target.value)} required>
+                      <option value="">— Select an action —</option>
+                      {(actions[newActionConnector] || []).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  )}
                 </div>
               )}
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -317,7 +349,7 @@ export default function ZapBuilderPage({ params }: Props) {
                       {/* Dynamic config fields */}
                       {step.availableAction?.inputSchema ? (
                         <>
-                          {Object.entries((step.availableAction.inputSchema as any).properties || {}).map(([key, schema]: [string, any]) => (
+                          {Object.entries((step.availableAction.inputSchema as InputSchema).properties ?? {}).map(([key, schema]) => (
                             <div className="form-group" key={key}>
                               <label className="form-label">{schema.title || key}</label>
                               {schema.type === 'string' && (key === 'text' || schema.title?.toLowerCase().includes('text') || schema.title?.toLowerCase().includes('description')) ? (

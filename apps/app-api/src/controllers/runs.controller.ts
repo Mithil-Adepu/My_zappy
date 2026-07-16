@@ -2,14 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '@zapier-clone/db';
 import { AuthenticatedRequest } from '../middleware/auth.middleware';
 import { createError } from '../middleware/error-handler.middleware';
+import { serializeBigInt } from '../lib/serialize';
 
-function serializeBigInt(obj: unknown): unknown {
-  return JSON.parse(
-    JSON.stringify(obj, (_key, value) =>
-      typeof value === 'bigint' ? value.toString() : value,
-    ),
-  );
-}
 
 // GET /runs/zap/:zapId — paginated run list for a zap
 export async function listRunsForZap(
@@ -20,8 +14,10 @@ export async function listRunsForZap(
   try {
     const { userId } = req as AuthenticatedRequest;
     const zapId = BigInt(req.params.zapId);
-    const page = parseInt((req.query.page as string) ?? '1');
-    const limit = Math.min(parseInt((req.query.limit as string) ?? '20'), 100);
+    const rawPage = Array.isArray(req.query.page) ? '1' : String(req.query.page ?? '1');
+    const rawLimit = Array.isArray(req.query.limit) ? '20' : String(req.query.limit ?? '20');
+    const page = parseInt(rawPage, 10) || 1;
+    const limit = Math.min(parseInt(rawLimit, 10) || 20, 100);
 
     // Verify zap ownership before returning run data
     const zap = await prisma.zap.findFirst({ where: { id: zapId, userId } });

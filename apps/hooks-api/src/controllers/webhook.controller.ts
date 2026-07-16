@@ -11,6 +11,12 @@ export async function handleWebhook(
 ): Promise<void> {
   const { zapId, stepId } = req.params;
 
+  // Guard: reject non-numeric IDs immediately rather than letting BigInt() throw
+  if (!/^\d+$/.test(zapId) || !/^\d+$/.test(stepId)) {
+    res.status(200).json({ received: true });
+    return;
+  }
+
   // Signature header — picked up in priority order:
   //   GitHub:   X-Hub-Signature-256  (value: "sha256=<hex>")
   //   Razorpay: X-Razorpay-Signature (value: plain hex)

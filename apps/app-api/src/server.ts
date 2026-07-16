@@ -8,14 +8,19 @@ import { connectionsRouter } from './routes/connections.routes';
 import { zapsRouter } from './routes/zaps.routes';
 import { runsRouter } from './routes/runs.routes';
 import { errorHandler } from './middleware/error-handler.middleware';
+import { requestLogger } from './middleware/request-logger.middleware';
 import { startCronJobs } from './jobs';
+import { logger } from './lib/logger';
+
 
 export const app: import('express').Express = express();
 
 // ─── Middleware ──────────────────────────────────────────────────────────────
 app.use(helmet());
 app.use(cors({ origin: env.WEB_APP_URL, credentials: true }));
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
+app.use(requestLogger);
+
 
 // ─── Health ──────────────────────────────────────────────────────────────────
 app.get('/health', async (_req, res) => {
@@ -42,6 +47,6 @@ app.use(errorHandler);
 if (require.main === module) {
   startCronJobs();
   app.listen(env.APP_API_PORT, () => {
-    console.log(`🚀  app-api running on port ${env.APP_API_PORT}`);
+    logger.info({ port: env.APP_API_PORT }, '🚀  app-api running');
   });
 }

@@ -35,29 +35,47 @@ export async function pollOutbox(): Promise<void> {
 
   while (!stopRequested) {
     try {
-      // FOR UPDATE SKIP LOCKED — safe for concurrent relay instances
-      const rows = await prisma.$queryRaw<OutboxRow[]>`
-        SELECT
-          o.id,
-          o.webhook_event_id AS "webhookEventId",
-          o.event_id AS "eventId",
-          o.payload,
-          o.attempts,
-          o.max_attempts AS "maxAttempts",
-          we.zap_id AS "zapId",
-          z.user_id AS "userId"
-        FROM outbox o
-        JOIN webhook_events we ON we.id = o.webhook_event_id
-        JOIN zaps z ON z.id = we.zap_id
-        WHERE o.status = 'pending'
-        ORDER BY o.created_at
-        LIMIT ${env.RELAY_BATCH_SIZE}
-        FOR UPDATE OF o SKIP LOCKED
-      `;
+      /**
+       * IMPORTANT: FOR UPDATE SKIP LOCKED requires a transaction to hold the lock.
+       * We claim rows inside the transaction (marking them 'dispatched' optimistically),
+       * then produce to Kafka outside. If Kafka fails, we revert to 'pending' in the catch.
+       * This is the "optimistic claim" pattern for the outbox.
+       */
+      const claimedRows = await prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw<OutboxRow[]>`
+          SELECT
+            o.id,
+            o.webhook_event_id AS "webhookEventId",
+            o.event_id AS "eventId",
+            o.payload,
+            o.attempts,
+            o.max_attempts AS "maxAttempts",
+            we.zap_id AS "zapId",
+            z.user_id AS "userId"
+          FROM outbox o
+          JOIN webhook_events we ON we.id = o.webhook_event_id
+          JOIN zaps z ON z.id = we.zap_id
+          WHERE o.status = 'pending'
+          ORDER BY o.created_at ASC
+          LIMIT ${env.RELAY_BATCH_SIZE}
+          FOR UPDATE OF o SKIP LOCKED
+        `;
 
-      for (const row of rows) {
-        await processRow(row);
-      }
+        if (rows.length === 0) return [];
+
+        // Optimistically mark as dispatched inside the transaction
+        const ids = rows.map((r) => r.id);
+        await tx.$executeRaw`
+          UPDATE outbox
+          SET status = 'dispatched', attempts = attempts + 1
+          WHERE id = ANY(${ids}::bigint[])
+        `;
+
+        return rows;
+      });
+
+      // Produce to Kafka outside the transaction (Kafka is not 2PC-compatible)
+      await Promise.all(claimedRows.map((row) => produceRow(row)));
     } catch (err) {
       logger.error({ err }, '[relay] Poll error');
     }
@@ -69,7 +87,8 @@ export async function pollOutbox(): Promise<void> {
   isRunning = false;
 }
 
-async function processRow(row: OutboxRow): Promise<void> {
+
+async function produceRow(row: OutboxRow): Promise<void> {
   const producer = await getProducer();
 
   const event: ZapRunRequestedEvent = {
@@ -92,19 +111,11 @@ async function processRow(row: OutboxRow): Promise<void> {
       ],
     });
 
-    // Kafka ack received — mark dispatched
-    await prisma.outbox.update({
-      where: { id: row.id },
-      data: {
-        status: 'dispatched',
-        attempts: { increment: 1 },
-      },
-    });
-
     logger.info({ outboxRowId: row.id.toString(), eventId: row.eventId }, '[relay] Dispatched outbox row');
   } catch (err) {
-    logger.error({ err, outboxRowId: row.id.toString() }, '[relay] Failed to dispatch row');
+    logger.error({ err, outboxRowId: row.id.toString() }, '[relay] Failed to produce to Kafka — reverting status');
 
+    // Row was already marked dispatched in the transaction; revert on Kafka failure
     const newAttempts = row.attempts + 1;
     if (newAttempts >= row.maxAttempts) {
       // Dead-letter — requires manual intervention
@@ -117,14 +128,15 @@ async function processRow(row: OutboxRow): Promise<void> {
         '[relay] Row moved to dead after max attempts — MANUAL REVIEW REQUIRED',
       );
     } else {
-      // Stay pending, retry next sweep
+      // Revert to pending so next sweep retries
       await prisma.outbox.update({
         where: { id: row.id },
-        data: { attempts: newAttempts },
+        data: { status: 'pending', attempts: newAttempts },
       });
     }
   }
 }
+
 
 export function requestStop(): void {
   stopRequested = true;

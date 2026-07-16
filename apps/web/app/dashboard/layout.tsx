@@ -14,7 +14,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     // Decode JWT payload (no verify needed client-side — just for display)
     try {
       const payload = JSON.parse(atob(token.split('.')[1]));
-      setUser({ name: payload.sub ?? 'User', email: '' });
+      setUser({ name: payload.name ?? payload.sub ?? 'User', email: '' });
     } catch { setUser({ name: 'User', email: '' }); }
   }, [router]);
 

@@ -6,6 +6,10 @@ import { createError } from '../middleware/error-handler.middleware';
 import { validateZapSteps } from '../services/zap-validation.service';
 import { assertConnectionOwnership } from '../services/connection-ownership.service';
 import { AuthenticatedRequest } from '../middleware/auth.middleware';
+import { serializeBigInt } from '../lib/serialize';
+
+/** Type of the interactive client inside a prisma.$transaction callback. */
+type PrismaTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
 // ─── Schema helpers ───────────────────────────────────────────────────────────
 
@@ -25,14 +29,7 @@ const createZapSchema = z.object({
   steps: z.array(stepSchema).min(1),
 });
 
-// Helper to serialize BigInts in responses
-function serializeZap(zap: Record<string, unknown>): unknown {
-  return JSON.parse(
-    JSON.stringify(zap, (_key, value) =>
-      typeof value === 'bigint' ? value.toString() : value,
-    ),
-  );
-}
+
 
 // ─── List zaps ────────────────────────────────────────────────────────────────
 
@@ -48,7 +45,7 @@ export async function listZaps(
       include: { _count: { select: { steps: true } } },
       orderBy: { createdAt: 'desc' },
     });
-    res.json(zaps.map(serializeZap));
+    res.json(zaps.map(serializeBigInt));
   } catch (err) {
     next(err);
   }
@@ -79,7 +76,7 @@ export async function getZap(
     });
 
     if (!zap) throw createError('Zap not found', 404);
-    res.json(serializeZap(zap as unknown as Record<string, unknown>));
+    res.json(serializeBigInt(zap as unknown as Record<string, unknown>));
   } catch (err) {
     next(err);
   }
@@ -132,7 +129,7 @@ export async function createZap(
       },
     });
 
-    res.status(201).json(serializeZap(zap as unknown as Record<string, unknown>));
+    res.status(201).json(serializeBigInt(zap as unknown as Record<string, unknown>));
   } catch (err) {
     next(err);
   }
@@ -167,7 +164,7 @@ export async function updateZap(
       data: body,
     });
 
-    res.json(serializeZap(zap as unknown as Record<string, unknown>));
+    res.json(serializeBigInt(zap as unknown as Record<string, unknown>));
   } catch (err) {
     next(err);
   }
@@ -242,7 +239,7 @@ export async function addStep(
       },
     });
 
-    res.status(201).json(serializeZap(step as unknown as Record<string, unknown>));
+    res.status(201).json(serializeBigInt(step as unknown as Record<string, unknown>));
   } catch (err) {
     next(err);
   }
@@ -262,6 +259,12 @@ export async function updateStep(
 
     const zap = await prisma.zap.findFirst({ where: { id: zapId, userId } });
     if (!zap) throw createError('Zap not found', 404);
+
+    // Security: verify the step actually belongs to this zap (prevents IDOR)
+    const existingStep = await prisma.zapStep.findFirst({
+      where: { id: stepId, zapId },
+    });
+    if (!existingStep) throw createError('Step not found', 404);
 
     const body = z
       .object({
@@ -284,7 +287,7 @@ export async function updateStep(
       },
     });
 
-    res.json(serializeZap(step as unknown as Record<string, unknown>));
+    res.json(serializeBigInt(step as unknown as Record<string, unknown>));
   } catch (err) {
     next(err);
   }
@@ -311,7 +314,7 @@ export async function deleteStep(
     const stepToDelete = zap.steps.find((s) => s.id === stepId);
     if (!stepToDelete) throw createError('Step not found', 404);
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: PrismaTx) => {
       await tx.zapStep.delete({ where: { id: stepId } });
 
       // Re-sequence positions — fill gap left by deleted step
@@ -334,3 +337,4 @@ export async function deleteStep(
     next(err);
   }
 }
+
