@@ -1,6 +1,8 @@
 # ─── Stage 1: Build ──────────────────────────────────────────────────────────
 FROM node:20-slim AS builder
 
+RUN apt-get update -y && apt-get install -y openssl ca-certificates
+
 WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@9.1.0 --activate
@@ -23,9 +25,13 @@ RUN pnpm --filter @zapier-clone/types build
 RUN pnpm --filter @zapier-clone/worker build
 
 RUN pnpm --filter @zapier-clone/worker deploy --prod /deploy
+COPY packages/db/prisma /deploy/packages/db/prisma
+RUN cd /deploy && npx prisma generate --schema=packages/db/prisma/schema.prisma
 
 # ─── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM node:20-slim AS runner
+
+RUN apt-get update -y && apt-get install -y openssl ca-certificates
 
 WORKDIR /app
 
