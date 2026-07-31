@@ -102,9 +102,8 @@ services:
       NODE_ENV: production
     command: >
       sh -c "
-        node node_modules/.bin/prisma migrate deploy --schema=packages/db/prisma/schema.prisma &&
-        node packages/db/dist/src/seed/seed-connectors.js 2>/dev/null || true &&
-        node apps/app-api/dist/server.js
+        node_modules/.bin/prisma migrate deploy --schema=packages/db/prisma/schema.prisma &&
+        node dist/server.js
       "
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://localhost:3001/health || exit 1']

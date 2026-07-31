@@ -102,6 +102,9 @@ importers:
 
   apps/hooks-api:
     dependencies:
+      '@prisma/client':
+        specifier: ^5.13.0
+        version: 5.22.0(prisma@5.22.0)
       '@sentry/node':
         specifier: ^10.65.0
         version: 10.65.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))
@@ -133,9 +136,6 @@ importers:
         specifier: ^3.23.8
         version: 3.25.76
     devDependencies:
-      '@prisma/client':
-        specifier: ^5.13.0
-        version: 5.22.0(prisma@5.22.0)
       '@types/express':
         specifier: ^4.17.21
         version: 4.17.25
@@ -234,6 +234,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@prisma/client':
+        specifier: ^5.13.0
+        version: 5.22.0(prisma@5.22.0)
       '@sentry/node':
         specifier: ^10.65.0
         version: 10.65.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))
@@ -274,9 +277,6 @@ importers:
         specifier: ^3.23.8
         version: 3.25.76
     devDependencies:
-      '@prisma/client':
-        specifier: ^5.13.0
-        version: 5.22.0(prisma@5.22.0)
       '@testcontainers/postgresql':
         specifier: ^12.0.4
         version: 12.0.4

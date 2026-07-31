@@ -36,4 +36,4 @@ COPY packages/db/prisma ./packages/db/prisma
 
 EXPOSE 3001
 
-CMD ["sh", "-c", "node node_modules/.bin/prisma migrate deploy --schema=packages/db/prisma/schema.prisma && node dist/server.js"]
+CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy --schema=packages/db/prisma/schema.prisma && node dist/server.js"]
