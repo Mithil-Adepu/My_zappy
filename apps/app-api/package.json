@@ -11,6 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@prisma/client": "^5.13.0",
     "@sentry/node": "^10.65.0",
     "@zapier-clone/db": "workspace:*",
     "@zapier-clone/types": "workspace:*",

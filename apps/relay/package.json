@@ -9,6 +9,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@prisma/client": "^5.13.0",
     "@sentry/node": "^7.99.0",
     "@zapier-clone/db": "workspace:*",
     "@zapier-clone/types": "workspace:*",
