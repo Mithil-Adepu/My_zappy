@@ -26,7 +26,7 @@ RUN pnpm --filter @zapier-clone/worker build
 
 RUN pnpm --filter @zapier-clone/worker deploy --prod /deploy
 COPY packages/db/prisma /deploy/packages/db/prisma
-RUN cd /deploy && npx prisma generate --schema=packages/db/prisma/schema.prisma
+RUN cd /deploy && ./node_modules/.bin/prisma generate --schema=packages/db/prisma/schema.prisma
 
 # ─── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM node:20-slim AS runner
