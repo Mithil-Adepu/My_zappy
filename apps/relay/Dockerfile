@@ -13,7 +13,7 @@ COPY apps/relay/package.json ./apps/relay/
 # BuildKit cache mount for pnpm store — only re-downloads packages when
 # pnpm-lock.yaml changes. Cuts install time from ~90s → ~5s on cache hit.
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile
+    pnpm config set node-linker hoisted && pnpm install --frozen-lockfile
 
 COPY tsconfig.base.json ./
 COPY packages/db ./packages/db

@@ -11,7 +11,7 @@ COPY packages/types/package.json ./packages/types/
 COPY apps/app-api/package.json ./apps/app-api/
 
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile
+    pnpm config set node-linker hoisted && pnpm install --frozen-lockfile
 
 COPY tsconfig.base.json ./
 COPY packages/db ./packages/db
