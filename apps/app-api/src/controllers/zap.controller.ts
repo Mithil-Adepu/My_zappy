@@ -67,7 +67,17 @@ export async function getZap(
       include: {
         steps: {
           orderBy: { position: 'asc' },
-          include: {
+          // Explicitly select all fields except webhookSecret
+          select: {
+            id: true,
+            zapId: true,
+            stepType: true,
+            position: true,
+            availableTriggerId: true,
+            availableActionId: true,
+            connectionId: true,
+            config: true,
+            createdAt: true,
             availableTrigger: true,
             availableAction: true,
           },
@@ -76,7 +86,7 @@ export async function getZap(
     });
 
     if (!zap) throw createError('Zap not found', 404);
-    res.json(serializeBigInt(zap as unknown as Record<string, unknown>));
+    res.json(serializeBigInt(zap));
   } catch (err) {
     next(err);
   }
@@ -125,11 +135,25 @@ export async function createZap(
         },
       },
       include: {
-        steps: { orderBy: { position: 'asc' } },
+        // Select all step fields except webhookSecret — must never be sent to the browser
+        steps: {
+          orderBy: { position: 'asc' },
+          select: {
+            id: true,
+            zapId: true,
+            stepType: true,
+            position: true,
+            availableTriggerId: true,
+            availableActionId: true,
+            connectionId: true,
+            config: true,
+            createdAt: true,
+          },
+        },
       },
     });
 
-    res.status(201).json(serializeBigInt(zap as unknown as Record<string, unknown>));
+    res.status(201).json(serializeBigInt(zap));
   } catch (err) {
     next(err);
   }
@@ -164,7 +188,7 @@ export async function updateZap(
       data: body,
     });
 
-    res.json(serializeBigInt(zap as unknown as Record<string, unknown>));
+    res.json(serializeBigInt(zap));
   } catch (err) {
     next(err);
   }
@@ -223,6 +247,7 @@ export async function addStep(
     ];
     validateZapSteps(newStepSet);
 
+    // Omit webhookSecret from response — use select after create
     const step = await prisma.zapStep.create({
       data: {
         zapId,
@@ -237,9 +262,20 @@ export async function addStep(
             ? crypto.randomBytes(32).toString('hex')
             : null,
       },
+      select: {
+        id: true,
+        zapId: true,
+        stepType: true,
+        position: true,
+        availableTriggerId: true,
+        availableActionId: true,
+        connectionId: true,
+        config: true,
+        createdAt: true,
+      },
     });
 
-    res.status(201).json(serializeBigInt(step as unknown as Record<string, unknown>));
+    res.status(201).json(serializeBigInt(step));
   } catch (err) {
     next(err);
   }
@@ -287,7 +323,7 @@ export async function updateStep(
       },
     });
 
-    res.json(serializeBigInt(step as unknown as Record<string, unknown>));
+    res.json(serializeBigInt(step));
   } catch (err) {
     next(err);
   }
@@ -317,18 +353,24 @@ export async function deleteStep(
     await prisma.$transaction(async (tx: PrismaTx) => {
       await tx.zapStep.delete({ where: { id: stepId } });
 
-      // Re-sequence positions — fill gap left by deleted step
+      // Re-sequence positions in a single raw UPDATE to avoid N individual queries.
+      // Uses a CASE WHEN expression: for each remaining step, set position = its new 0-based index.
       const remaining = zap.steps
         .filter((s) => s.id !== stepId)
         .sort((a, b) => a.position - b.position);
 
-      for (let i = 0; i < remaining.length; i++) {
-        if (remaining[i].position !== i) {
-          await tx.zapStep.update({
-            where: { id: remaining[i].id },
-            data: { position: i },
-          });
-        }
+      if (remaining.length > 0) {
+        // Build VALUES list: (id, new_position)
+        const values = remaining
+          .map((s, i) => `(${s.id}::bigint, ${i})`)
+          .join(', ');
+
+        await tx.$executeRawUnsafe(`
+          UPDATE zap_steps AS t
+          SET position = v.new_pos
+          FROM (VALUES ${values}) AS v(id, new_pos)
+          WHERE t.id = v.id AND t.position != v.new_pos
+        `);
       }
     });
 

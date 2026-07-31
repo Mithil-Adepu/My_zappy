@@ -1,4 +1,9 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import { resolve } from 'path';
+// In dev, pnpm sets cwd to the package dir (apps/app-api) so ../../.env = monorepo root.
+// dotenv.config() never overrides vars already in the environment (safe in Docker/CI).
+dotenv.config({ path: resolve(process.cwd(), '../../.env'), override: true });
+
 import { z } from 'zod';
 
 const envSchema = z.object({

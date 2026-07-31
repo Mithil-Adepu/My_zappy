@@ -9,30 +9,14 @@
  * the entire action when one optional field is missing.
  */
 
+import { resolvePath } from '../lib/resolve-path';
+
 interface SubstituteResult {
   mappedPayload: Record<string, unknown>;
   unresolvedFields: string[];
 }
 
 const TEMPLATE_REGEX = /\{\{([^}]+)\}\}/g;
-
-/**
- * Resolves a dot-notation path in a nested object.
- * e.g. "payload.payment.entity.amount" in { payload: { payment: { entity: { amount: 500 } } } }
- */
-function resolvePath(obj: unknown, path: string): { value: unknown; found: boolean } {
-  const parts = path.split('.');
-  let current: unknown = obj;
-
-  for (const part of parts) {
-    if (current === null || current === undefined || typeof current !== 'object') {
-      return { value: undefined, found: false };
-    }
-    current = (current as Record<string, unknown>)[part];
-  }
-
-  return { value: current, found: current !== undefined };
-}
 
 /**
  * Substitutes a single template string value.

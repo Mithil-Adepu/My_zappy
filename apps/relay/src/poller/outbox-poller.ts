@@ -74,8 +74,10 @@ export async function pollOutbox(): Promise<void> {
         return rows;
       });
 
-      // Produce to Kafka outside the transaction (Kafka is not 2PC-compatible)
-      await Promise.all(claimedRows.map((row) => produceRow(row)));
+      // Produce to Kafka outside the transaction (Kafka is not 2PC-compatible).
+      // Use allSettled so a single row failure never aborts the rest of the batch —
+      // each produceRow() already handles its own errors and reverts status internally.
+      await Promise.allSettled(claimedRows.map((row) => produceRow(row)));
     } catch (err) {
       logger.error({ err }, '[relay] Poll error');
     }

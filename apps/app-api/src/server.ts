@@ -1,6 +1,12 @@
+// Sentry must be initialised before any other imports
+import { initSentry, Sentry } from './lib/sentry';
+initSentry();
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import { prisma } from '@zapier-clone/db';
 import { env } from './config/env';
 import { authRouter } from './routes/auth.routes';
 import { connectorsRouter } from './routes/connectors.routes';
@@ -20,6 +26,18 @@ app.use(helmet());
 app.use(cors({ origin: env.WEB_APP_URL, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
 app.use(requestLogger);
+
+// ─── Global rate limiter ─────────────────────────────────────────────────────
+// Defense-in-depth: 200 req/min per IP across all routes.
+// Auth routes (/auth/login, /auth/signup) have their own tighter 10/15min limiter.
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 200,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Please slow down.' },
+});
+app.use(globalLimiter);
 
 
 // ─── Health ──────────────────────────────────────────────────────────────────
@@ -46,7 +64,27 @@ app.use(errorHandler);
 // ─── Server ──────────────────────────────────────────────────────────────────
 if (require.main === module) {
   startCronJobs();
-  app.listen(env.APP_API_PORT, () => {
+  const server = app.listen(env.APP_API_PORT, () => {
     logger.info({ port: env.APP_API_PORT }, '🚀  app-api running');
   });
+
+  // ─── Graceful shutdown (§16) ───────────────────────────────────────────────
+  const shutdown = async (signal: string) => {
+    logger.info(`[app-api] ${signal} received — draining connections`);
+    server.close(async () => {
+      await Sentry.flush(2000).catch(() => {});
+      await prisma.$disconnect();
+      logger.info('[app-api] Shutdown complete');
+      process.exit(0);
+    });
+
+    // Force-exit after 30 s if drain takes too long
+    setTimeout(() => {
+      logger.warn('[app-api] Forced exit after 30 s shutdown timeout');
+      process.exit(1);
+    }, 30_000);
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT',  () => shutdown('SIGINT'));
 }

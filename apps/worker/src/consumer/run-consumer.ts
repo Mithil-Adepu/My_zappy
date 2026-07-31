@@ -14,7 +14,9 @@ export function getConsumer(): Consumer {
     const kafka = new Kafka({
       clientId: env.KAFKA_CLIENT_ID,
       brokers: env.KAFKA_BROKERS.split(','),
-      retry: { retries: 5 },
+      // Increase retries — broker can be slow on first start in KRaft mode.
+      // initialRetryTime + exponential backoff prevents rapid hammering.
+      retry: { initialRetryTime: 300, retries: 10 },
     });
     consumer = kafka.consumer({ groupId: env.KAFKA_GROUP_ID_WORKER });
   }
@@ -122,13 +124,38 @@ export async function onMessage(event: ZapRunRequestedEvent): Promise<void> {
   );
 }
 
+const CONNECT_MAX_ATTEMPTS = 20;
+
+/**
+ * Connects and subscribes with exponential backoff.
+ * Kafka (KRaft mode) can take 30-60s to elect a leader and create topics
+ * on first start. Rather than crashing, the worker retries automatically.
+ */
+async function connectWithRetry(c: Consumer): Promise<void> {
+  for (let attempt = 1; attempt <= CONNECT_MAX_ATTEMPTS; attempt++) {
+    try {
+      await c.connect();
+      await c.subscribe({
+        topic: env.KAFKA_TOPIC_ZAP_RUN_REQUESTED,
+        fromBeginning: false,
+      });
+      logger.info({ attempt }, '[worker] Kafka connected and subscribed');
+      return;
+    } catch (err) {
+      const delay = Math.min(1000 * Math.pow(2, attempt - 1), 30_000); // 1s → 30s cap
+      logger.warn(
+        { err, attempt, nextRetryMs: delay },
+        `[worker] Kafka connect attempt ${attempt}/${CONNECT_MAX_ATTEMPTS} failed — retrying in ${delay}ms`,
+      );
+      if (attempt === CONNECT_MAX_ATTEMPTS) throw err;
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+}
+
 export async function startConsumer(): Promise<void> {
   const c = getConsumer();
-  await c.connect();
-  await c.subscribe({
-    topic: env.KAFKA_TOPIC_ZAP_RUN_REQUESTED,
-    fromBeginning: false,
-  });
+  await connectWithRetry(c);
 
   await c.run({
     // TASK-3.6: Use eachBatch so we can call heartbeat() during long-running

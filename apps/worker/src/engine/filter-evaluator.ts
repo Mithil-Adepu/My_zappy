@@ -13,6 +13,8 @@
  * }
  */
 
+import { resolvePath } from '../lib/resolve-path';
+
 type Operator = 'eq' | 'neq' | 'contains' | 'gt' | 'lt' | 'gte' | 'lte' | 'exists';
 
 interface FilterCondition {
@@ -26,26 +28,19 @@ interface FilterConfig {
   logic?: 'AND' | 'OR';
 }
 
-function resolvePath(obj: unknown, path: string): unknown {
-  return path.split('.').reduce((acc: unknown, part: string) => {
-    if (acc === null || acc === undefined || typeof acc !== 'object') return undefined;
-    return (acc as Record<string, unknown>)[part];
-  }, obj);
-}
-
 function evaluateCondition(
   condition: FilterCondition,
   context: Record<string, unknown>,
 ): boolean {
-  const actual = resolvePath(context, condition.field);
+  const { value: actual } = resolvePath(context, condition.field);
 
   switch (condition.operator) {
     case 'eq':
-      // eslint-disable-next-line eqeqeq
-      return actual == condition.value;
+      // Explicit String coercion: "100" == 100 is intentional for webhook payloads
+      // where numeric IDs may arrive as strings. Using String() makes the intent clear.
+      return String(actual) === String(condition.value);
     case 'neq':
-      // eslint-disable-next-line eqeqeq
-      return actual != condition.value;
+      return String(actual) !== String(condition.value);
     case 'contains':
       return typeof actual === 'string' &&
         typeof condition.value === 'string' &&

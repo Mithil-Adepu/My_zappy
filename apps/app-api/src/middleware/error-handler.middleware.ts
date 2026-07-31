@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { logger } from '../lib/logger';
+import { Sentry } from '../lib/sentry';
 
 export interface AppError extends Error {
   statusCode?: number;
@@ -16,6 +17,8 @@ export function errorHandler(
 
   if (statusCode === 500) {
     logger.error({ err }, '[app-api] unhandled 500 error');
+    // Capture unexpected server errors to Sentry
+    Sentry.captureException(err);
   }
 
   res.status(statusCode).json({ error: message });
