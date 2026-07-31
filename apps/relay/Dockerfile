@@ -27,6 +27,8 @@ RUN pnpm --filter @zapier-clone/relay build
 # ─── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 
+RUN apk add --no-cache openssl
+
 WORKDIR /app
 
 COPY package.json pnpm-workspace.yaml ./
@@ -35,8 +37,12 @@ COPY packages/types/package.json ./packages/types/
 COPY apps/relay/package.json ./apps/relay/
 
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/packages/db/dist ./packages/db/dist
-COPY --from=builder /app/packages/types/dist ./packages/types/dist
+
+COPY --from=builder /app/packages/db/dist ./node_modules/@zapier-clone/db/dist
+COPY packages/db/package.json ./node_modules/@zapier-clone/db/package.json
+COPY --from=builder /app/packages/types/dist ./node_modules/@zapier-clone/types/dist
+COPY packages/types/package.json ./node_modules/@zapier-clone/types/package.json
+
 COPY --from=builder /app/apps/relay/dist ./apps/relay/dist
 
 EXPOSE 3003
