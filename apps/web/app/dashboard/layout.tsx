@@ -29,6 +29,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { href: '/dashboard/connections',  icon: '🔌', label: 'Connections' },
   ];
 
+  // Initials avatar
+  const initials = user?.name
+    ? user.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
+    : '?';
+
   return (
     <div className="layout">
       {/* Sidebar */}
@@ -51,10 +56,29 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
 
         <div style={{ marginTop: 'auto', padding: '16px 12px', borderTop: '1px solid var(--border)' }}>
-          <div style={{ padding: '10px 12px', marginBottom: 8 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{user?.name}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Free plan</div>
-          </div>
+          {/* Clickable profile block */}
+          <Link href="/dashboard/profile" style={{ textDecoration: 'none' }}>
+            <div
+              className={`nav-item ${path === '/dashboard/profile' ? 'active' : ''}`}
+              style={{ gap: 10, marginBottom: 4 }}
+            >
+              <div style={{
+                width: 28, height: 28, borderRadius: '50%',
+                background: 'var(--orange)', color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 11, fontWeight: 700, flexShrink: 0,
+              }}>
+                {initials}
+              </div>
+              <div style={{ overflow: 'hidden' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {user?.name ?? '…'}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>Free plan</div>
+              </div>
+            </div>
+          </Link>
+
           <button onClick={logout} className="nav-item" style={{ width: '100%', color: 'var(--red)' }}>
             <span>🚪</span><span>Sign out</span>
           </button>

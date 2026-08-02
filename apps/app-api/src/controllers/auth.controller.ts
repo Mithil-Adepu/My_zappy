@@ -108,3 +108,30 @@ export async function me(
     next(err);
   }
 }
+
+const updateMeSchema = z.object({
+  name: z.string().min(1).max(100),
+});
+
+export async function updateMe(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { userId } = req as AuthenticatedRequest;
+    const body = updateMeSchema.safeParse(req.body);
+    if (!body.success) {
+      res.status(400).json({ error: body.error.flatten().fieldErrors });
+      return;
+    }
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { name: body.data.name },
+      select: { id: true, name: true, email: true, createdAt: true },
+    });
+    res.json({ id: user.id.toString(), name: user.name, email: user.email, createdAt: user.createdAt });
+  } catch (err) {
+    next(err);
+  }
+}

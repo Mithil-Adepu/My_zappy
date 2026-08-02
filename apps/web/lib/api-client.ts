@@ -40,7 +40,11 @@ export const api = {
       request<{ token: string; user: { id: string; name: string; email: string } }>('/auth/login', {
         method: 'POST', body: JSON.stringify(body),
       }),
-    me: () => request<{ id: string; name: string; email: string }>('/auth/me'),
+    me: () => request<{ id: string; name: string; email: string; createdAt: string }>('/auth/me'),
+    updateMe: (body: { name: string }) =>
+      request<{ id: string; name: string; email: string; createdAt: string }>('/auth/me', {
+        method: 'PATCH', body: JSON.stringify(body),
+      }),
   },
 
   // ─── Connectors ─────────────────────────────────────────────────────────────
