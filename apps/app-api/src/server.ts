@@ -46,7 +46,8 @@ app.get('/health', async (_req, res) => {
     const { prisma } = await import('@zapier-clone/db');
     await prisma.$queryRaw`SELECT 1`;
     res.status(200).json({ status: 'ok', db: true });
-  } catch {
+  } catch (err) {
+    logger.error({ err }, '[app-api] Health check failed');
     res.status(503).json({ status: 'error', db: false });
   }
 });
