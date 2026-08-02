@@ -21,6 +21,10 @@ import { logger } from './lib/logger';
 
 export const app: import('express').Express = express();
 
+// Trust one proxy hop (Nginx) so express-rate-limit can read the real
+// client IP from X-Forwarded-For instead of the Docker bridge IP.
+app.set('trust proxy', 1);
+
 // ─── Middleware ──────────────────────────────────────────────────────────────
 app.use(helmet());
 app.use(cors({ origin: env.WEB_APP_URL, credentials: true }));

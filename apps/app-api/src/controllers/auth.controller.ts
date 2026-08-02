@@ -74,12 +74,12 @@ export async function login(
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      throw createError('Invalid credentials', 401);
+      throw createError('No account found with this email address', 401);
     }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
-      throw createError('Invalid credentials', 401);
+      throw createError('Incorrect password. Please try again.', 401);
     }
 
     const token = issueToken(user.id, user.name);
