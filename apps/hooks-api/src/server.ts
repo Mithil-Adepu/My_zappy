@@ -19,7 +19,9 @@ app.use(helmet());
 
 // Request logger middleware
 app.use((req, _res, next) => {
-  logger.info({ method: req.method, url: req.url }, 'incoming request');
+  if (req.path !== '/health') {
+    logger.info({ method: req.method, url: req.url }, 'incoming request');
+  }
   next();
 });
 
