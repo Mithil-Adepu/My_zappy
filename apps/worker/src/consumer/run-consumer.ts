@@ -197,7 +197,7 @@ async function connectWithRetry(c: Consumer): Promise<void> {
       await c.connect();
       await c.subscribe({
         topic: env.KAFKA_TOPIC_ZAP_RUN_REQUESTED,
-        fromBeginning: false,
+        fromBeginning: true,
       });
       logger.info({ attempt }, '[worker] Kafka connected and subscribed');
       return;
