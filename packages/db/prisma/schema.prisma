@@ -195,7 +195,7 @@ model ZapRun {
   id             BigInt    @id @default(autoincrement())
   zapId          BigInt    @map("zap_id")
   webhookEventId BigInt    @unique @map("webhook_event_id")
-  status         String    @default("in_progress") @db.VarChar(20)
+  status         String    @default("queued") @db.VarChar(20)
   stepSnapshot   Json?     @map("step_snapshot")
   startedAt      DateTime  @default(now()) @map("started_at") @db.Timestamptz()
   completedAt    DateTime? @map("completed_at") @db.Timestamptz()
@@ -204,7 +204,7 @@ model ZapRun {
   webhookEvent WebhookEvent @relation(fields: [webhookEventId], references: [id])
   zapRunSteps  ZapRunStep[]
 
-  // NOTE: CHECK (status IN ('in_progress','completed','failed','filtered')) enforced in migration SQL.
+  // NOTE: CHECK (status IN ('queued','in_progress','completed','failed','filtered')) enforced in migration SQL.
 
   @@index([zapId, status], name: "idx_zap_runs_zap_status")
   @@map("zap_runs")

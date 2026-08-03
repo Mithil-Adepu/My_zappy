@@ -6,11 +6,12 @@ import { api, ZapRun, RunDetail } from '../../../../../lib/api-client';
 interface Props { params: Promise<{ zapId: string }> }
 
 const STATUS_CONFIG: Record<string, { badge: string; dot: string; emoji: string }> = {
-  completed: { badge: 'badge-green',  dot: 'completed', emoji: '✓' },
-  failed:    { badge: 'badge-red',    dot: 'failed',    emoji: '✕' },
-  filtered:  { badge: 'badge-yellow', dot: 'ambiguous', emoji: '⊘' },
-  in_progress: { badge: 'badge-blue', dot: 'processing', emoji: '⟳' },
-  processing:  { badge: 'badge-blue', dot: 'processing', emoji: '⟳' },
+  queued:      { badge: 'badge-gray',   dot: 'pending',   emoji: '⏳' },
+  completed:   { badge: 'badge-green',  dot: 'completed', emoji: '✓' },
+  failed:      { badge: 'badge-red',    dot: 'failed',    emoji: '✕' },
+  filtered:    { badge: 'badge-yellow', dot: 'ambiguous', emoji: '⊘' },
+  in_progress: { badge: 'badge-blue',   dot: 'processing', emoji: '⟳' },
+  processing:  { badge: 'badge-blue',   dot: 'processing', emoji: '⟳' },
   ambiguous:   { badge: 'badge-yellow', dot: 'ambiguous', emoji: '?' },
 };
 

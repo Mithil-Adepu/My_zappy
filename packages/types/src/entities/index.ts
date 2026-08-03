@@ -98,7 +98,7 @@ export interface ZapRun {
   id: bigint;
   zapId: bigint;
   webhookEventId: bigint;
-  status: 'in_progress' | 'completed' | 'failed' | 'filtered';
+  status: 'queued' | 'in_progress' | 'completed' | 'failed' | 'filtered';
   stepSnapshot: ZapStep[] | null;
   startedAt: Date;
   completedAt: Date | null;

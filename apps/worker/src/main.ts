@@ -3,7 +3,7 @@ import cron from 'node-cron';
 import { prisma } from '@zapier-clone/db';
 import { env } from './config/env';
 import { initSentry } from './lib/sentry';
-import { startConsumer, pauseConsumer, disconnectConsumer } from './consumer/run-consumer';
+import { startConsumer, pauseConsumer, disconnectConsumer, isConsumerHealthy } from './consumer/run-consumer';
 import { disconnectRedis } from './services/rate-limiter.service';
 import { retryStuckSteps } from './services/retry-stuck-steps.job';
 // registry.ts self-registers all adapters (slack, razorpay, github) at module load time
@@ -21,10 +21,15 @@ const app = express();
 
 app.get('/health', async (_req, res) => {
   try {
+    if (!isConsumerHealthy) {
+      logger.error('[worker] Health check failed: Kafka consumer is unhealthy');
+      res.status(503).json({ status: 'error', kafka: false });
+      return;
+    }
     await prisma.$queryRaw`SELECT 1`;
-    res.status(200).json({ status: 'ok', db: true });
+    res.status(200).json({ status: 'ok', db: true, kafka: true });
   } catch (err) {
-    logger.error({ err }, '[worker] Health check failed');
+    logger.error({ err }, '[worker] Health check failed: DB error');
     res.status(503).json({ status: 'error', db: false });
   }
 });

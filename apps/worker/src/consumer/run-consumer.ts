@@ -7,6 +7,7 @@ import { underRunCap } from '../services/rate-limiter.service';
 import { logger } from '../lib/logger';
 
 let consumer: Consumer | null = null;
+export let isConsumerHealthy = true;
 let shuttingDown = false;
 
 export function getConsumer(): Consumer {
@@ -31,8 +32,19 @@ export function getConsumer(): Consumer {
     
     // Exit process on fatal crash so Docker can restart the container
     consumer.on(consumer.events.CRASH, (e) => {
+      isConsumerHealthy = false;
       logger.error({ err: e.payload.error }, '[worker] Kafka consumer crashed! Exiting to allow Docker to restart.');
       process.exit(1);
+    });
+
+    // KafkaJS can sometimes stop without crashing (e.g. GroupCoordinator errors).
+    // If it stops unexpectedly, exit to let Docker autorestart.
+    consumer.on(consumer.events.STOP, () => {
+      if (!shuttingDown) {
+        isConsumerHealthy = false;
+        logger.error('[worker] Kafka consumer stopped unexpectedly! Exiting to allow Docker to restart.');
+        process.exit(1);
+      }
     });
   }
   return consumer;
@@ -52,15 +64,14 @@ export async function onMessage(event: ZapRunRequestedEvent): Promise<void> {
   const webhookEventId = BigInt(event.webhookEventId);
   const zapId = BigInt(event.zapId);
 
-  // Upsert zap_run — ON CONFLICT DO NOTHING (idempotent on Kafka redeliver)
+  // 1. Try to claim a queued run (new webhooks)
+  // Using UPDATE ... WHERE status = 'queued' ensures idempotency on Kafka redeliver.
   // IMPORTANT: json_build_object keys must be camelCase to match SnapshotStep interface
-  const rows = await prisma.$queryRaw<Array<{ id: bigint; step_snapshot: unknown }>>`
-    INSERT INTO zap_runs (zap_id, webhook_event_id, status, step_snapshot)
-    SELECT
-      ${zapId},
-      ${webhookEventId},
-      'in_progress',
-      (SELECT json_agg(
+  let rows = await prisma.$queryRaw<Array<{ id: bigint; step_snapshot: unknown }>>`
+    UPDATE zap_runs
+    SET
+      status = 'in_progress',
+      step_snapshot = (SELECT json_agg(
         json_build_object(
           'id', zs.id,
           'position', zs.position,
@@ -75,9 +86,39 @@ export async function onMessage(event: ZapRunRequestedEvent): Promise<void> {
           )
         ) ORDER BY zs.position
       ) FROM zap_steps zs WHERE zs.zap_id = ${zapId})
-    ON CONFLICT (webhook_event_id) DO NOTHING
+    WHERE webhook_event_id = ${webhookEventId} AND status = 'queued'
     RETURNING id, step_snapshot
   `;
+
+  // 2. Fallback for old webhooks that never got a 'queued' row
+  // If UPDATE returned 0 rows, it either means this is an old webhook (needs insert),
+  // OR it's a duplicate Kafka delivery (already claimed/completed).
+  if (rows.length === 0) {
+    rows = await prisma.$queryRaw<Array<{ id: bigint; step_snapshot: unknown }>>`
+      INSERT INTO zap_runs (zap_id, webhook_event_id, status, step_snapshot)
+      SELECT
+        ${zapId},
+        ${webhookEventId},
+        'in_progress',
+        (SELECT json_agg(
+          json_build_object(
+            'id', zs.id,
+            'position', zs.position,
+            'stepType', zs.step_type,
+            'availableActionId', zs.available_action_id,
+            'availableTriggerId', zs.available_trigger_id,
+            'connectionId', zs.connection_id,
+            'config', zs.config,
+            'availableAction', (
+              SELECT json_build_object('inputSchema', aa.input_schema)
+              FROM available_actions aa WHERE aa.id = zs.available_action_id
+            )
+          ) ORDER BY zs.position
+        ) FROM zap_steps zs WHERE zs.zap_id = ${zapId})
+      ON CONFLICT (webhook_event_id) DO NOTHING
+      RETURNING id, step_snapshot
+    `;
+  }
 
   let zapRun: { id: bigint; stepSnapshot: unknown };
 

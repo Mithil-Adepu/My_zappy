@@ -145,6 +145,13 @@ export async function ingestWebhook(
 
     const webhookEventId = rows[0].id;
 
+    // Immediately create the zap_run in 'queued' state for frontend visibility
+    await tx.$executeRaw`
+      INSERT INTO zap_runs (zap_id, webhook_event_id, status)
+      VALUES (${BigInt(zapId)}, ${webhookEventId}, 'queued')
+      ON CONFLICT (webhook_event_id) DO NOTHING
+    `;
+
     await tx.outbox.create({
       data: {
         webhookEventId,
@@ -153,7 +160,7 @@ export async function ingestWebhook(
       },
     });
 
-    logger.info({ zapId, stepId, eventId, webhookEventId: webhookEventId.toString() }, 'webhook ingested and outbox row created');
+    logger.info({ zapId, stepId, eventId, webhookEventId: webhookEventId.toString() }, 'webhook ingested, outbox row and queued zap run created');
     return 'ingested';
   });
 
