@@ -8,6 +8,7 @@ import {
   addStep,
   updateStep,
   deleteStep,
+  getWebhookSecret,
 } from '../controllers/zap.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 
@@ -25,3 +26,6 @@ zapsRouter.delete('/:id', deleteZap);
 zapsRouter.post('/:id/steps', addStep);
 zapsRouter.patch('/:id/steps/:stepId', updateStep);
 zapsRouter.delete('/:id/steps/:stepId', deleteStep);
+
+// Webhook secret — separate endpoint so it is never included in GET /zap/:id
+zapsRouter.get('/:id/steps/:stepId/webhook-secret', getWebhookSecret);

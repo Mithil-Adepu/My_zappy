@@ -80,6 +80,8 @@ export const api = {
       request<ZapStep>(`/zaps/${zapId}/steps/${stepId}`, { method: 'PATCH', body: JSON.stringify(body) }),
     deleteStep: (zapId: string, stepId: string) =>
       request<null>(`/zaps/${zapId}/steps/${stepId}`, { method: 'DELETE' }),
+    getWebhookSecret: (zapId: string, stepId: string) =>
+      request<{ webhookSecret: string }>(`/zaps/${zapId}/steps/${stepId}/webhook-secret`),
   },
 
   // ─── Runs ─────────────────────────────────────────────────────────────────────

@@ -380,3 +380,34 @@ export async function deleteStep(
   }
 }
 
+// ─── Get webhook secret ───────────────────────────────────────────────────────
+// Intentionally a separate endpoint so the secret is never included in the
+// general GET /zap/:id response. Only the authenticated owner can call this.
+
+export async function getWebhookSecret(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { userId } = req as AuthenticatedRequest;
+    const zapId = BigInt(req.params.id);
+    const stepId = BigInt(req.params.stepId);
+
+    // Verify zap ownership
+    const zap = await prisma.zap.findFirst({ where: { id: zapId, userId } });
+    if (!zap) throw createError('Zap not found', 404);
+
+    const step = await prisma.zapStep.findFirst({
+      where: { id: stepId, zapId },
+      select: { webhookSecret: true, stepType: true },
+    });
+    if (!step) throw createError('Step not found', 404);
+    if (step.stepType !== 'trigger') throw createError('Only trigger steps have a webhook secret', 400);
+    if (!step.webhookSecret) throw createError('No webhook secret set for this step', 404);
+
+    res.json({ webhookSecret: step.webhookSecret });
+  } catch (err) {
+    next(err);
+  }
+}

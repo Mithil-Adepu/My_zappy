@@ -39,6 +39,24 @@ export default function ZapBuilderPage({ params }: Props) {
   const [newActionId, setNewActionId] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
 
+  // Webhook secret is never included in GET /zap/:id for security.
+  // Fetched on-demand per step when the user clicks "Reveal Secret".
+  const [revealedSecrets, setRevealedSecrets] = useState<Record<string, string>>({});
+  const [revealingSecret, setRevealingSecret] = useState<string | null>(null);
+
+  async function revealWebhookSecret(stepId: string) {
+    if (revealedSecrets[stepId]) return; // already fetched
+    setRevealingSecret(stepId);
+    try {
+      const { webhookSecret } = await api.zaps.getWebhookSecret(zapId, stepId);
+      setRevealedSecrets(s => ({ ...s, [stepId]: webhookSecret }));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to reveal secret');
+    } finally {
+      setRevealingSecret(null);
+    }
+  }
+
   useEffect(() => {
     Promise.all([
       api.zaps.get(zapId),
@@ -240,6 +258,7 @@ export default function ZapBuilderPage({ params }: Props) {
                     const webhookUrl = `${hooksBase}/hooks/${zapId}/${step.id}`;
                     const connectorId = step.availableTriggerId?.split(':')[0] ?? '';
                     const isGitHub = connectorId === 'github';
+                    const isRazorpay = connectorId === 'razorpay';
                     const isCatchHook = step.availableTriggerId === 'webhooks:catch_hook';
 
                     return (
@@ -273,28 +292,40 @@ export default function ZapBuilderPage({ params }: Props) {
                           </div>
                         </div>
 
-                        {step.webhookSecret && (
-                          <div className="form-group">
-                            <label className="form-label">Webhook Secret</label>
-                            <div style={{ display: 'flex', gap: 8 }}>
-                              <div className="code-block" style={{ flex: 1, fontSize: 11, userSelect: 'all', cursor: 'text', letterSpacing: '0.04em' }}>
-                                {step.webhookSecret}
+                        <div className="form-group">
+                          <label className="form-label">Webhook Secret</label>
+                          {revealedSecrets[step.id] ? (
+                            <>
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                <div className="code-block" style={{ flex: 1, fontSize: 11, userSelect: 'all', cursor: 'text', letterSpacing: '0.04em' }}>
+                                  {revealedSecrets[step.id]}
+                                </div>
+                                <button
+                                  className="btn btn-secondary btn-sm"
+                                  style={{ flexShrink: 0 }}
+                                  onClick={() => navigator.clipboard.writeText(revealedSecrets[step.id])}
+                                >
+                                  📋 Copy
+                                </button>
                               </div>
-                              <button
-                                className="btn btn-secondary btn-sm"
-                                style={{ flexShrink: 0 }}
-                                onClick={() => navigator.clipboard.writeText(step.webhookSecret!)}
-                              >
-                                📋 Copy
-                              </button>
-                            </div>
-                            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                              {isGitHub
-                                ? 'Paste this into GitHub → Settings → Webhooks → Secret.'
-                                : 'Use this as the HMAC-SHA256 signing key in your provider\'s webhook settings.'}
-                            </p>
-                          </div>
-                        )}
+                              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                                {isGitHub
+                                  ? 'Paste this into GitHub → Settings → Webhooks → Secret.'
+                                  : isRazorpay
+                                  ? 'Paste this into Razorpay Dashboard → Webhooks → Secret (used for HMAC-SHA256 signature verification).'
+                                  : 'Use this as the HMAC-SHA256 signing key in your provider\'s webhook settings.'}
+                              </p>
+                            </>
+                          ) : (
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => revealWebhookSecret(step.id)}
+                              disabled={revealingSecret === step.id}
+                            >
+                              {revealingSecret === step.id ? '⏳ Loading…' : '👁 Reveal Secret'}
+                            </button>
+                          )}
+                        </div>
 
                         <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '12px 14px', fontSize: 12 }}>
                           <div style={{ fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>Required headers</div>
@@ -304,6 +335,11 @@ export default function ZapBuilderPage({ params }: Props) {
                                 <div><code style={{ color: 'var(--orange)' }}>X-Hub-Signature-256</code> — HMAC-SHA256 of request body (prefixed <code>sha256=</code>)</div>
                                 <div><code style={{ color: 'var(--orange)' }}>X-GitHub-Delivery</code> — GitHub-supplied unique delivery UUID</div>
                                 <div><code style={{ color: 'var(--orange)' }}>X-GitHub-Event</code> — event type (e.g. <code>push</code>, <code>pull_request</code>)</div>
+                              </>
+                            ) : isRazorpay ? (
+                              <>
+                                <div><code style={{ color: 'var(--orange)' }}>X-Razorpay-Signature</code> — HMAC-SHA256 of request body (plain hex, set automatically by Razorpay)</div>
+                                <div><code style={{ color: 'var(--orange)' }}>X-Razorpay-Event-Id</code> — Razorpay unique event ID for deduplication</div>
                               </>
                             ) : isCatchHook ? (
                               <>
@@ -324,6 +360,13 @@ export default function ZapBuilderPage({ params }: Props) {
                             <strong>ℹ️ GitHub setup:</strong> Go to your repo → Settings → Webhooks → Add webhook.
                             Set Content type to <code>application/json</code>, paste the URL and secret above,
                             and select only the event type matching this trigger.
+                          </div>
+                        )}
+
+                        {isRazorpay && (
+                          <div style={{ background: 'rgba(0, 187, 100, 0.08)', border: '1px solid rgba(0, 187, 100, 0.2)', borderRadius: 'var(--radius-md)', padding: '10px 14px', fontSize: 12, color: 'var(--text-secondary)' }}>
+                            <strong>ℹ️ Razorpay setup:</strong> Go to Razorpay Dashboard → Settings → Webhooks → Add New Webhook.
+                            Paste the Webhook URL above, reveal and paste the Secret, then enable the <code>payment.captured</code> event. Razorpay signs every delivery with HMAC-SHA256 automatically.
                           </div>
                         )}
                       </div>
