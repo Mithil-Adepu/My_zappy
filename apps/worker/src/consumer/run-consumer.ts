@@ -14,11 +14,26 @@ export function getConsumer(): Consumer {
     const kafka = new Kafka({
       clientId: env.KAFKA_CLIENT_ID,
       brokers: env.KAFKA_BROKERS.split(','),
+      // Upstash Kafka requires SASL_SCRAM and SSL
+      ...(env.KAFKA_USERNAME && env.KAFKA_PASSWORD && {
+        ssl: true,
+        sasl: {
+          mechanism: 'scram-sha-256',
+          username: env.KAFKA_USERNAME,
+          password: env.KAFKA_PASSWORD,
+        },
+      }),
       // Increase retries — broker can be slow on first start in KRaft mode.
       // initialRetryTime + exponential backoff prevents rapid hammering.
       retry: { initialRetryTime: 300, retries: 10 },
     });
     consumer = kafka.consumer({ groupId: env.KAFKA_GROUP_ID_WORKER });
+    
+    // Exit process on fatal crash so Docker can restart the container
+    consumer.on(consumer.events.CRASH, (e) => {
+      logger.error({ err: e.payload.error }, '[worker] Kafka consumer crashed! Exiting to allow Docker to restart.');
+      process.exit(1);
+    });
   }
   return consumer;
 }
@@ -103,6 +118,10 @@ export async function onMessage(event: ZapRunRequestedEvent): Promise<void> {
 
   if (!zap || !zap.isActive) {
     logger.info({ zapId: zapId.toString() }, '[worker] Zap is inactive — skipping run');
+    await prisma.zapRun.update({
+      where: { id: zapRun.id },
+      data: { status: 'filtered', completedAt: new Date() },
+    });
     return;
   }
 

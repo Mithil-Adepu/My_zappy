@@ -24,11 +24,11 @@ const GITHUB_TRIGGER_ROUTING: Record<
   string,
   { githubEvent: string; actionFilter?: string; refTypeFilter?: string }
 > = {
-  'github:push':               { githubEvent: 'push' },
-  'github:pull_request_opened':{ githubEvent: 'pull_request', actionFilter: 'opened' },
-  'github:issue_opened':       { githubEvent: 'issues',       actionFilter: 'opened' },
-  'github:branch_created':     { githubEvent: 'create',       refTypeFilter: 'branch' },
-  'github:release_published':  { githubEvent: 'release',      actionFilter: 'published' },
+  'github:push': { githubEvent: 'push' },
+  'github:pull_request_opened': { githubEvent: 'pull_request', actionFilter: 'opened' },
+  'github:issue_opened': { githubEvent: 'issues', actionFilter: 'opened' },
+  'github:branch_created': { githubEvent: 'create', refTypeFilter: 'branch' },
+  'github:release_published': { githubEvent: 'release', actionFilter: 'published' },
 };
 
 /**

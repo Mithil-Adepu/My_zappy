@@ -9,6 +9,15 @@ export function getKafka(): Kafka {
     kafka = new Kafka({
       clientId: env.KAFKA_CLIENT_ID,
       brokers: env.KAFKA_BROKERS.split(','),
+      // Upstash Kafka requires SASL_SCRAM and SSL
+      ...(env.KAFKA_USERNAME && env.KAFKA_PASSWORD && {
+        ssl: true,
+        sasl: {
+          mechanism: 'scram-sha-256',
+          username: env.KAFKA_USERNAME,
+          password: env.KAFKA_PASSWORD,
+        },
+      }),
       retry: { retries: 5 },
     });
   }

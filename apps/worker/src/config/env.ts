@@ -8,6 +8,8 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
   KAFKA_BROKERS: z.string().default('localhost:9092'),
+  KAFKA_USERNAME: z.string().optional(),
+  KAFKA_PASSWORD: z.string().optional(),
   KAFKA_CLIENT_ID: z.string().default('zapier-worker'),
   KAFKA_GROUP_ID_WORKER: z.string().default('zapier-worker'),
   KAFKA_TOPIC_ZAP_RUN_REQUESTED: z.string().default('zap.run.requested'),
