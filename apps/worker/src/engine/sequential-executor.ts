@@ -72,6 +72,14 @@ export async function resume(
       return;
     }
 
+    // ─── Trigger step ────────────────────────────────────────────────────────
+    if (nextStep.stepType === 'trigger') {
+      // The trigger already occurred (it's what started the run)
+      await markStepCompleted(claimed.id, { result: 'Trigger successfully fired' });
+      currentPosition++;
+      continue;
+    }
+
     // ─── Filter step ─────────────────────────────────────────────────────────
     if (nextStep.stepType === 'filter') {
       const passed = evaluateFilter(nextStep.config, currentContext);
