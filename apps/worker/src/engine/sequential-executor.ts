@@ -78,9 +78,10 @@ export async function resume(
       await markStepCompleted(claimed.id, { result: 'Trigger successfully fired' });
       
       // Alias the webhook payload into step_1 so users can map {{step_1.payload...}}
+      // Note: positions are 0-indexed in DB, but 1-indexed in UI
       currentContext = {
         ...currentContext,
-        [`step_${currentPosition}`]: payloadContext,
+        [`step_${currentPosition + 1}`]: payloadContext,
       };
 
       currentPosition++;
@@ -126,7 +127,7 @@ export async function resume(
       // Merge step output into payload context for use by subsequent steps
       currentContext = {
         ...currentContext,
-        [`step_${currentPosition}`]: result.output ?? {},
+        [`step_${currentPosition + 1}`]: result.output ?? {},
       };
       currentPosition++;
       continue;
