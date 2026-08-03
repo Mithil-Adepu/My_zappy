@@ -76,6 +76,13 @@ export async function resume(
     if (nextStep.stepType === 'trigger') {
       // The trigger already occurred (it's what started the run)
       await markStepCompleted(claimed.id, { result: 'Trigger successfully fired' });
+      
+      // Alias the webhook payload into step_1 so users can map {{step_1.payload...}}
+      currentContext = {
+        ...currentContext,
+        [`step_${currentPosition}`]: payloadContext,
+      };
+
       currentPosition++;
       continue;
     }
